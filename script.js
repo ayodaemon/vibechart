@@ -1,17 +1,13 @@
 const ui = {
     ru: {
-        placeholder: "Название альбома или артиста...",
+        placeholder: "Начните вводить имя артиста или альбом...",
         closeBtn: "Закрыть",
         saveBtn: "Скачать PNG",
         clearBtn: "Очистить всё",
         confirm: "Сбросить чарт и вернуть все ячейки?",
         tapText: "+ Выбрать",
         artistHeader: "Артисты (нажмите для дискографии):",
-        albumsHeader: "Альбомы:",
-        discographyHeader: "Дискография:",
-        notFound: "Ничего не найдено",
-        noCollections: "Коллекции не найдены",
-        networkError: "Ошибка сети. Попробуйте позже.",
+        discographyHeader: "Дискография артиста:",
         hints: {
             desktop: "Для удаления ячейки: ПКМ",
             mobile: "Для удаления ячейки: долгий тап"
@@ -24,18 +20,14 @@ const ui = {
         ]
     },
     en: {
-        placeholder: "Album or artist name...",
+        placeholder: "Start typing artist name or album...",
         closeBtn: "Close",
         saveBtn: "Download PNG",
         clearBtn: "Clear all",
         confirm: "Reset everything and restore cells?",
         tapText: "+ Tap to add",
-        artistHeader: "Artists (tap for discography):",
-        albumsHeader: "Albums:",
-        discographyHeader: "Discography:",
-        notFound: "Nothing found",
-        noCollections: "No collections found",
-        networkError: "Network error. Please try again.",
+        artistHeader: "Search Results:",
+        discographyHeader: "Artist Discography:",
         hints: {
             desktop: "To delete a cell: Right-click",
             mobile: "To delete a cell: long press"
@@ -49,11 +41,13 @@ const ui = {
     }
 };
 
+// Безопасный парсинг LocalStorage
 function safeParse(key, fallback) {
     try {
         const value = localStorage.getItem(key);
         return value ? JSON.parse(value) : fallback;
     } catch (e) {
+        console.error(`Error parsing localStorage key "${key}":`, e);
         return fallback;
     }
 }
@@ -83,11 +77,11 @@ function init() {
         if (!q) { 
             document.getElementById('results').innerHTML = ''; 
             document.getElementById('searchLoader').style.display = 'none';
-            document.getElementById('artistDiscographyHeader').style.display = 'none';
+            document.getElementById('artistDiscographyHeader').style.display = 'none'; // Скрываем заголовок
             return; 
         }
         document.getElementById('searchLoader').style.display = 'block';
-        searchTimeout = setTimeout(() => searchHybrid(q), 500);
+        searchTimeout = setTimeout(() => searchHybrid(q), 400);
     });
 }
 
@@ -109,20 +103,21 @@ function updateUI() {
 
 function render() {
     const grid = document.getElementById('chartGrid');
-    grid.innerHTML = '';
+    grid.innerHTML = ''; // Очистка родителя безопасна
     
     ui[currentLang].cats.forEach((text, i) => {
         if (hiddenCells[i]) return;
         
         const cell = document.createElement('div');
         cell.className = 'cell';
+        
         const imgUrl = chartData[i];
         
         if (imgUrl) {
             const img = document.createElement('img');
             img.src = imgUrl;
             img.alt = "cover";
-            img.crossOrigin = "anonymous";
+            img.crossOrigin = "anonymous"; // Помогает с CORS при экспорте
             cell.appendChild(img);
         } else {
             const emptyImg = document.createElement('div');
@@ -138,10 +133,11 @@ function render() {
         spanText.textContent = text;
         cell.appendChild(spanText);
         
+        // Обработка событий (защита от конфликта тапов)
         let isLongPress = false;
         let timer;
 
-        cell.addEventListener('click', () => {
+        cell.addEventListener('click', (e) => {
             if (!isLongPress) openModal(i);
         });
         
@@ -150,7 +146,7 @@ function render() {
             removeCell(i);
         });
 
-        cell.addEventListener('touchstart', () => {
+        cell.addEventListener('touchstart', (e) => {
             isLongPress = false;
             timer = setTimeout(() => {
                 isLongPress = true;
@@ -166,52 +162,30 @@ function render() {
 }
 
 function removeCell(i) {
-    if(confirm(ui[currentLang].confirm.replace("?", ""))) { 
+    if(confirm(currentLang === 'ru' ? "Скрыть эту ячейку?" : "Hide this cell?")) {
         hiddenCells[i] = true;
         localStorage.setItem('hiddenCells', JSON.stringify(hiddenCells));
         render();
     }
 }
 
-// 100% безопасное и правильное формирование URL для iTunes API
-async function fetchItunes(query, type, country) {
-    let url = new URL('https://itunes.apple.com/search');
-    
-    if (type === 'lookup') {
-        url = new URL('https://itunes.apple.com/lookup');
-        url.searchParams.append('id', query);
-        url.searchParams.append('entity', 'album');
-        url.searchParams.append('limit', '200');
-    } else {
-        url.searchParams.append('term', query);
-        url.searchParams.append('media', 'music');
-        if (type === 'artist') {
-            url.searchParams.append('entity', 'musicArtist');
-            url.searchParams.append('limit', '4');
-        } else if (type === 'album') {
-            url.searchParams.append('entity', 'album');
-            url.searchParams.append('limit', '12');
-        }
-    }
-    url.searchParams.append('country', country);
-
-    const res = await fetch(url.toString(), { signal: controller.signal });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+// Защищенный загрузчик с пробросом реальных ошибок
+async function fetchItunes(url, signal) {
+    const res = await fetch(url, { signal });
+    if (!res.ok) throw new Error('Network response was not ok');
     const data = await res.json();
     return data.results || [];
 }
 
-// Хелпер для вывода сообщений
-function showMessage(text, isError = false) {
-    const resDiv = document.getElementById('results');
-    resDiv.innerHTML = '';
-    const msg = document.createElement('div');
-    msg.style.cssText = `grid-column: 1 / -1; text-align: center; padding: 20px; font-weight: bold; ${isError ? 'color: red;' : 'opacity: 0.5;'}`;
-    msg.textContent = text;
-    resDiv.appendChild(msg);
+// Вспомогательная функция для безопасного вывода текста (XSS защита)
+function createTextNode(text, styles = {}) {
+    const el = document.createElement('p');
+    el.textContent = text;
+    Object.assign(el.style, styles);
+    return el;
 }
 
-// Гибридный поиск: Альбомы + Артисты
+// Упрощенный гибридный поиск: только альбомы
 async function searchHybrid(q) {
     if (controller) controller.abort();
     controller = new AbortController();
@@ -220,150 +194,34 @@ async function searchHybrid(q) {
     const s = ui[currentLang];
 
     try {
-        const safeFetch = async (t, c) => {
-            try { return await fetchItunes(q, t, c); } 
-            catch (e) { if (e.name === 'AbortError') throw e; return []; }
-        };
-
-        const [ruArtists, usArtists, ruAlbums, usAlbums] = await Promise.all([
-            safeFetch('artist', 'ru'), safeFetch('artist', 'us'),
-            safeFetch('album', 'ru'), safeFetch('album', 'us')
+        const query = encodeURIComponent(q);
+        
+        // Два параллельных запроса (RU + US) х (Альбомы)
+        const [ruAlbums, usAlbums] = await Promise.all([
+            fetchItunes(`https://itunes.apple.com/search?term=${query}&entity=album&limit=16&country=ru`, controller.signal).catch(e => { if (e.name === 'AbortError') throw e; return []; }),
+            fetchItunes(`https://itunes.apple.com/search?term=${query}&entity=album&limit=16&country=us`, controller.signal).catch(e => { if (e.name === 'AbortError') throw e; return []; })
         ]);
-
-        document.getElementById('searchLoader').style.display = 'none';
-        document.getElementById('artistDiscographyHeader').style.display = 'none';
-
-        const combinedArtists = [...ruArtists, ...usArtists];
-        const combinedAlbums = [...ruAlbums, ...usAlbums];
-
-        const uniqueArtists = Array.from(new Map(combinedArtists.map(a => [a.artistId, a])).values()).slice(0, 4);
-        const uniqueAlbums = Array.from(new Map(combinedAlbums.map(a => [a.collectionId, a])).values());
+        
+        // Убираем дубликаты
+        const uniqueAlbums = Array.from(new Map([...ruAlbums, ...usAlbums].map(a => [a.collectionId, a])).values());
 
         resDiv.innerHTML = '';
-        
-        if (uniqueArtists.length === 0 && uniqueAlbums.length === 0) {
-            showMessage(s.notFound);
-            return;
-        }
-
-        // 1. Отрисовка артистов
-        if (uniqueArtists.length > 0) {
-            const artistWrap = document.createElement('div');
-            artistWrap.style.cssText = 'grid-column: 1 / -1; display: flex; gap: 15px; margin-bottom: 15px; overflow-x: auto; padding-bottom: 10px;';
-            
-            const artistHeader = document.createElement('div');
-            artistHeader.style.cssText = 'grid-column: 1 / -1; width: 100%; font-weight: bold; margin-bottom: 5px; font-size: 14px;';
-            artistHeader.textContent = s.artistHeader;
-            resDiv.appendChild(artistHeader);
-
-            uniqueArtists.forEach(artist => {
-                const artEl = document.createElement('div');
-                // ВАЖНО: Убрали класс html2canvas-ignore, чтобы они были видимыми!
-                artEl.className = 'artist-result';
-                artEl.style.cssText = 'flex: 0 0 auto; width: 90px; border: none; cursor: pointer;';
-                
-                if (artist.artworkUrl100) {
-                    const img = document.createElement('img');
-                    img.src = artist.artworkUrl100.replace('100x100bb', '200x200bb');
-                    img.crossOrigin = "anonymous";
-                    img.style.cssText = 'width: 75px; height: 75px; border-radius: 50%; object-fit: cover; border: 2px solid #000; display: block; margin: 0 auto 8px auto;';
-                    artEl.appendChild(img);
-                } else {
-                    const placeholder = document.createElement('div');
-                    placeholder.style.cssText = 'width: 75px; height: 75px; border-radius: 50%; border: 2px solid #000; display: flex; align-items: center; justify-content: center; background: #eee; font-size: 30px; margin: 0 auto 8px auto;';
-                    placeholder.textContent = '👤';
-                    artEl.appendChild(placeholder);
-                }
-
-                const nameDiv = document.createElement('div');
-                nameDiv.style.cssText = 'font-size: 11px; font-weight: 700; text-align: center; text-transform: uppercase; line-height: 1.2; word-break: break-word;';
-                nameDiv.textContent = artist.artistName;
-                artEl.appendChild(nameDiv);
-
-                artEl.addEventListener('click', () => loadArtistDiscography(artist.artistId, artist.artistName));
-                artistWrap.appendChild(artEl);
-            });
-            resDiv.appendChild(artistWrap);
-        }
-
-        // 2. Отрисовка альбомов
-        if (uniqueAlbums.length > 0) {
-            // Добавляем заголовок "Альбомы", если есть и артисты, чтобы отделить их визуально
-            if (uniqueArtists.length > 0) {
-                const albumHeader = document.createElement('div');
-                albumHeader.style.cssText = 'grid-column: 1 / -1; font-weight: bold; margin-top: 5px; margin-bottom: 5px; font-size: 14px;';
-                albumHeader.textContent = s.albumsHeader;
-                resDiv.appendChild(albumHeader);
-            }
-
-            uniqueAlbums.forEach(a => {
-                if (!a.artworkUrl100) return;
-                const colEl = document.createElement('div');
-                // ВАЖНО: Убрали класс html2canvas-ignore!
-                colEl.className = 'collection-result';
-                const img = document.createElement('img');
-                img.src = a.artworkUrl100.replace('100x100bb', '600x600bb');
-                img.title = `${a.artistName} - ${a.collectionName}`;
-                img.loading = "lazy";
-                img.crossOrigin = "anonymous";
-                img.addEventListener('click', () => {
-                    chartData[activeIndex] = img.src;
-                    localStorage.setItem('chartData', JSON.stringify(chartData));
-                    render();
-                    closeModal();
-                });
-                colEl.appendChild(img);
-                resDiv.appendChild(colEl);
-            });
-        }
-
-    } catch(e) {
-        if (e.name !== 'AbortError') {
-            document.getElementById('searchLoader').style.display = 'none';
-            showMessage(s.networkError, true);
-        }
-    }
-}
-
-// Загрузка дискографии
-async function loadArtistDiscography(artistId, artistName) {
-    document.getElementById('searchLoader').style.display = 'block';
-    const resDiv = document.getElementById('results');
-    resDiv.innerHTML = ''; 
-
-    const s = ui[currentLang];
-    document.getElementById('modalTitle').textContent = `${s.cats[activeIndex]} > ${artistName}`;
-
-    try {
-        const safeFetch = async (c) => {
-            try { return await fetchItunes(artistId, 'lookup', c); } 
-            catch (e) { if (e.name === 'AbortError') throw e; return []; }
-        };
-
-        const [resultsRu, resultsUs] = await Promise.all([safeFetch('ru'), safeFetch('us')]);
         document.getElementById('searchLoader').style.display = 'none';
+        document.getElementById('artistDiscographyHeader').style.display = 'none'; // Скрываем заголовок
         
-        const combined = [...resultsRu, ...resultsUs].filter(item => item.wrapperType === 'collection');
-        const uniqueAlbums = Array.from(new Map(combined.map(a => [a.collectionId, a])).values());
-
         if (uniqueAlbums.length === 0) {
-            showMessage(s.noCollections);
+            resDiv.appendChild(createTextNode(s.networkError, { gridColumn: '1 / -1', opacity: '0.5' }));
             return;
         }
 
-        document.getElementById('artistDiscographyHeader').textContent = s.discographyHeader;
-        document.getElementById('artistDiscographyHeader').style.display = 'block';
-
-        uniqueAlbums.sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate));
-
+        // Отрисовка только найденных обложек альбомов
         uniqueAlbums.forEach(a => {
             if (!a.artworkUrl100) return;
             const colEl = document.createElement('div');
-            // ВАЖНО: Убрали класс html2canvas-ignore!
-            colEl.className = 'collection-result';
+            colEl.className = 'collection-result html2canvas-ignore';
             const img = document.createElement('img');
             img.src = a.artworkUrl100.replace('100x100bb', '600x600bb');
-            img.title = a.collectionName; 
+            img.title = `${a.artistName} - ${a.collectionName}`;
             img.loading = "lazy";
             img.crossOrigin = "anonymous";
             img.addEventListener('click', () => {
@@ -375,10 +233,12 @@ async function loadArtistDiscography(artistId, artistName) {
             colEl.appendChild(img);
             resDiv.appendChild(colEl);
         });
+
     } catch(e) {
         if (e.name !== 'AbortError') {
             document.getElementById('searchLoader').style.display = 'none';
-            showMessage(s.networkError, true);
+            resDiv.innerHTML = '';
+            resDiv.appendChild(createTextNode(s.networkError, { gridColumn: '1 / -1', color: 'red' }));
         }
     }
 }
@@ -397,10 +257,11 @@ function openModal(i) {
 function closeModal() {
     document.getElementById('modal').style.display = 'none';
     if (controller) controller.abort();
+    document.getElementById('artistDiscographyHeader').style.display = 'none';
     activeIndex = null;
 }
 
-// Экспорт (не требует классов невидимки на результатах поиска)
+// Экспорт с защитой try/catch/finally
 async function saveChart() {
     const area = document.getElementById('capture-area');
     const gridEl = document.getElementById('chartGrid');
@@ -416,13 +277,16 @@ async function saveChart() {
         a.href = canvas.toDataURL('image/png');
         a.click();
     } catch (error) {
-        alert(currentLang === 'ru' ? "Ошибка сохранения картинки." : "Failed to save image.");
+        console.error("Export error:", error);
+        alert(currentLang === 'ru' ? "Ошибка сохранения картинки. Возможно, проблема с CORS." : "Failed to save image. Possible CORS issue.");
     } finally {
+        // Гарантированно возвращаем интерфейс в норму
         gridEl.classList.remove('force-desktop');
         hints.forEach(h => h.style.display = 'block');
     }
 }
 
+// Безопасная очистка (не трогаем чужие ключи)
 function clearData() {
     if (confirm(ui[currentLang].confirm)) {
         chartData = Array(24).fill("");
