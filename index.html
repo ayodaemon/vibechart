@@ -41,8 +41,8 @@
                 <span class="lang-label">EN</span>
             </div>
             
-            <button class="save-btn" id="saveBtn" onclick="saveChart()">Скачать PNG</button>
-            <button class="clear-btn" id="clearBtn" onclick="clearData()">Очистить всё</button>
+            <button class="save-btn" id="saveBtn" onclick="saveChart()"></button>
+            <button class="clear-btn" id="clearBtn" onclick="clearData()"></button>
         </div>
         <div class="mobile-hint" id="mobileHint"></div>
     </header>
@@ -62,8 +62,9 @@
                 <input type="text" id="albumInput" autocomplete="off">
                 <div id="searchLoader" class="loader"></div>
             </div>
+            <h4 id="artistDiscographyHeader" class="discography-header html2canvas-ignore" style="display:none;"></h4>
             <div id="results"></div>
-            <button class="close-btn" id="closeBtn" onclick="closeModal()">Закрыть</button>
+            <button class="close-btn" id="closeBtn" onclick="closeModal()"></button>
         </div>
     </div>
 
