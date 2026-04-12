@@ -47,7 +47,6 @@ const ui = {
     }
 };
 
-// Безопасный парсинг LocalStorage
 function safeParse(key, fallback) {
     try {
         const value = localStorage.getItem(key);
@@ -86,7 +85,6 @@ function init() {
             return; 
         }
         document.getElementById('searchLoader').style.display = 'block';
-        // Увеличен таймаут до 600мс, чтобы не ловить бан от Apple при быстрой печати
         searchTimeout = setTimeout(() => searchHybrid(q), 600);
     });
 }
@@ -141,7 +139,7 @@ function render() {
         let isLongPress = false;
         let timer;
 
-        cell.addEventListener('click', (e) => {
+        cell.addEventListener('click', () => {
             if (!isLongPress) openModal(i);
         });
         
@@ -150,7 +148,7 @@ function render() {
             removeCell(i);
         });
 
-        cell.addEventListener('touchstart', (e) => {
+        cell.addEventListener('touchstart', () => {
             isLongPress = false;
             timer = setTimeout(() => {
                 isLongPress = true;
@@ -166,36 +164,37 @@ function render() {
 }
 
 function removeCell(i) {
-    if(confirm(ui[currentLang].confirm.replace("?", ""))) { // Упрощенный диалог
+    if(confirm(ui[currentLang].confirm.replace("?", ""))) { 
         hiddenCells[i] = true;
         localStorage.setItem('hiddenCells', JSON.stringify(hiddenCells));
         render();
     }
 }
 
-// Унифицированная функция для работы с iTunes (с защитой)
-async function fetchItunes(query, type) {
+// 100% безопасное формирование ссылки для iTunes
+async function fetchItunes(query, type, country) {
     let url = '';
-    if (type === 'artist') {
-        url = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=artist&limit=4&country=ru`;
-    } else if (type === 'album') {
-        url = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=album&limit=16&country=ru`;
-    } else if (type === 'lookup') {
-        url = `https://itunes.apple.com/lookup?id=${query}&entity=album&limit=200&country=ru`;
+    
+    if (type === 'lookup') {
+        url = `https://itunes.apple.com/lookup?id=${query}&entity=album&limit=200&country=${country}`;
+    } else {
+        // РЕШЕНИЕ ПРОБЛЕМЫ 400 BAD REQUEST:
+        // Разбиваем строку по пробелам, кодируем части, склеиваем через "+"
+        const safeQuery = query.trim().split(/\s+/).map(encodeURIComponent).join('+');
+        
+        if (type === 'artist') {
+            url = `https://itunes.apple.com/search?term=${safeQuery}&media=music&entity=musicArtist&limit=4&country=${country}`;
+        } else if (type === 'album') {
+            url = `https://itunes.apple.com/search?term=${safeQuery}&media=music&entity=album&limit=12&country=${country}`;
+        }
     }
 
-    try {
-        const res = await fetch(url, { signal: controller.signal });
-        if (!res.ok) throw new Error('API Rate Limit or Network Error');
-        const data = await res.json();
-        return data.results || [];
-    } catch (err) {
-        if (err.name === 'AbortError') throw err; 
-        return []; 
-    }
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return data.results || [];
 }
 
-// Гибридный поиск: Альбомы + Артисты
 async function searchHybrid(q) {
     if (controller) controller.abort();
     controller = new AbortController();
@@ -204,23 +203,35 @@ async function searchHybrid(q) {
     const s = ui[currentLang];
 
     try {
-        // Делаем ровно 2 запроса, чтобы не злить Apple
-        const [artists, albums] = await Promise.all([
-            fetchItunes(q, 'artist').catch(e => { if (e.name === 'AbortError') throw e; return []; }),
-            fetchItunes(q, 'album').catch(e => { if (e.name === 'AbortError') throw e; return []; })
+        // Обертка, чтобы одна ошибка (например в US сторе) не убила весь поиск
+        const safeFetch = async (t, c) => {
+            try { return await fetchItunes(q, t, c); } 
+            catch (e) { if (e.name === 'AbortError') throw e; return []; }
+        };
+
+        // Двойной поиск для идеального баланса (США + Россия)
+        const [ruArtists, usArtists, ruAlbums, usAlbums] = await Promise.all([
+            safeFetch('artist', 'ru'), safeFetch('artist', 'us'),
+            safeFetch('album', 'ru'), safeFetch('album', 'us')
         ]);
 
-        resDiv.innerHTML = '';
         document.getElementById('searchLoader').style.display = 'none';
         document.getElementById('artistDiscographyHeader').style.display = 'none';
+
+        const combinedArtists = [...ruArtists, ...usArtists];
+        const combinedAlbums = [...ruAlbums, ...usAlbums];
+
+        const uniqueArtists = Array.from(new Map(combinedArtists.map(a => [a.artistId, a])).values()).slice(0, 4);
+        const uniqueAlbums = Array.from(new Map(combinedAlbums.map(a => [a.collectionId, a])).values());
+
+        resDiv.innerHTML = '';
         
-        if (artists.length === 0 && albums.length === 0) {
+        if (uniqueArtists.length === 0 && uniqueAlbums.length === 0) {
             resDiv.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 20px; font-weight: bold; opacity: 0.5;">${s.notFound}</div>`;
             return;
         }
 
-        // 1. Отрисовка артистов
-        if (artists.length > 0) {
+        if (uniqueArtists.length > 0) {
             const artistWrap = document.createElement('div');
             artistWrap.style.cssText = 'grid-column: 1 / -1; display: flex; gap: 15px; margin-bottom: 15px; overflow-x: auto; padding-bottom: 10px;';
             
@@ -229,7 +240,7 @@ async function searchHybrid(q) {
             artistHeader.textContent = s.artistHeader;
             resDiv.appendChild(artistHeader);
 
-            artists.forEach(artist => {
+            uniqueArtists.forEach(artist => {
                 const artEl = document.createElement('div');
                 artEl.className = 'artist-result html2canvas-ignore';
                 artEl.style.cssText = 'flex: 0 0 auto; width: 90px; border: none; cursor: pointer;';
@@ -258,8 +269,7 @@ async function searchHybrid(q) {
             resDiv.appendChild(artistWrap);
         }
 
-        // 2. Отрисовка альбомов
-        albums.forEach(a => {
+        uniqueAlbums.forEach(a => {
             if (!a.artworkUrl100) return;
             const colEl = document.createElement('div');
             colEl.className = 'collection-result html2canvas-ignore';
@@ -286,7 +296,6 @@ async function searchHybrid(q) {
     }
 }
 
-// Загрузка дискографии
 async function loadArtistDiscography(artistId, artistName) {
     document.getElementById('searchLoader').style.display = 'block';
     const resDiv = document.getElementById('results');
@@ -296,13 +305,18 @@ async function loadArtistDiscography(artistId, artistName) {
     document.getElementById('modalTitle').textContent = `${s.cats[activeIndex]} > ${artistName}`;
 
     try {
-        const results = await fetchItunes(artistId, 'lookup');
+        const safeFetch = async (c) => {
+            try { return await fetchItunes(artistId, 'lookup', c); } 
+            catch (e) { if (e.name === 'AbortError') throw e; return []; }
+        };
+
+        const [resultsRu, resultsUs] = await Promise.all([safeFetch('ru'), safeFetch('us')]);
         document.getElementById('searchLoader').style.display = 'none';
         
-        // Отсеиваем самого артиста из ответа, оставляем только коллекции
-        const albums = results.filter(item => item.wrapperType === 'collection');
+        const combined = [...resultsRu, ...resultsUs].filter(item => item.wrapperType === 'collection');
+        const uniqueAlbums = Array.from(new Map(combined.map(a => [a.collectionId, a])).values());
 
-        if (albums.length === 0) {
+        if (uniqueAlbums.length === 0) {
             resDiv.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 20px; font-weight: bold; opacity: 0.5;">${s.noCollections}</div>`;
             return;
         }
@@ -310,10 +324,9 @@ async function loadArtistDiscography(artistId, artistName) {
         document.getElementById('artistDiscographyHeader').textContent = s.discographyHeader;
         document.getElementById('artistDiscographyHeader').style.display = 'block';
 
-        // Сортировка по дате релиза
-        albums.sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate));
+        uniqueAlbums.sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate));
 
-        albums.forEach(a => {
+        uniqueAlbums.forEach(a => {
             if (!a.artworkUrl100) return;
             const colEl = document.createElement('div');
             colEl.className = 'collection-result html2canvas-ignore';
@@ -356,7 +369,6 @@ function closeModal() {
     activeIndex = null;
 }
 
-// Экспорт с защитой
 async function saveChart() {
     const area = document.getElementById('capture-area');
     const gridEl = document.getElementById('chartGrid');
