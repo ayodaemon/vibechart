@@ -35,6 +35,7 @@ header {
     max-width: 600px;
 }
 
+/* Группа переключения языка */
 .lang-wrapper {
     display: flex;
     align-items: center;
@@ -49,6 +50,7 @@ header {
 .slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px; background-color: #000; transition: .4s; border-radius: 50%; }
 input:checked + .slider:before { transform: translateX(22px); }
 
+/* Красивые кнопки главного экрана */
 button { 
     padding: 12px 24px; 
     border-radius: 10px; 
@@ -64,10 +66,12 @@ button {
 .clear-btn { background: #fff; color: #ff3b3b; border: 2px solid #ff3b3b; }
 .clear-btn:hover { background: #ff3b3b; color: #fff; }
 
+/* Подсказки, адаптируются под устройство */
 .mobile-hint { display: none; font-size: 12px; opacity: 0.5; margin-top: 15px; text-align: center; }
 footer { margin-top: 50px; font-weight: 700; font-size: 13px; text-align: center; }
 #desktopHint { opacity: 0.5; font-weight: 400; }
 
+/* Сетка чарта */
 #capture-area { background: #fff; padding: 15px; width: 100%; max-width: 1200px; display: flex; justify-content: center; }
 .grid { 
     display: grid; 
@@ -75,11 +79,14 @@ footer { margin-top: 50px; font-weight: 700; font-size: 13px; text-align: center
     gap: 12px; 
 }
 
+/* Форс десктопа для генерации картинки */
 .force-desktop { grid-template-columns: repeat(6, 180px) !important; width: 1150px !important; }
 
+/* Ячейки */
 .cell {
     width: 100%; height: 250px; border: 3px solid #000; display: flex; flex-direction: column;
     background: #fff; cursor: pointer; transition: var(--transition);
+    overflow: hidden;
 }
 .cell:hover { transform: translateY(-3px); box-shadow: 0 6px 12px rgba(0,0,0,0.08); }
 
@@ -106,24 +113,29 @@ footer { margin-top: 50px; font-weight: 700; font-size: 13px; text-align: center
     .mobile-hint { display: block; }
 }
 
+/* СУПЕР-КОМПАКТНЫЙ РЕЖИМ (ТЕЛЕФОНЫ) */
 @media (max-width: 600px) {
     .controls { gap: 10px; }
     .lang-wrapper { width: 100%; justify-content: center; margin-bottom: 5px; }
     button { flex: 1; padding: 12px 5px; font-size: 13px; text-align: center; }
 }
 
+/* Модалка (Улучшенная и большая на десктопе) */
 .modal { display: none; position: fixed; z-index: 2000; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.95); backdrop-filter: blur(10px); }
-.modal-content { margin: 5% auto; padding: 25px; width: 95%; max-width: 700px; text-align: center; display: flex; flex-direction: column; }
+.modal-content { margin: 5% auto; padding: 25px; width: 95%; max-width: 800px; text-align: center; display: flex; flex-direction: column; }
 
 #modalTitle { margin-top: 0; font-size: 22px; text-transform: uppercase; letter-spacing: 1px; }
 
+.discography-header { margin: 15px 0 10px 0; font-size: 16px; font-weight: 700; color: #000; text-align: left; padding: 0 5px; }
+
 #albumInput { width: 100%; padding: 16px; border: 3px solid #000; border-radius: 12px; font-family: var(--font-main); font-size: 16px; outline: none; margin-bottom: 5px; }
 
-#results { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 20px; max-height: 55vh; overflow-y: auto; padding: 5px; }
+#results { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-top: 20px; max-height: 55vh; overflow-y: auto; padding: 5px; }
 @media (max-width: 600px) { #results { grid-template-columns: repeat(2, 1fr); } }
 
-#results img { width: 100%; border-radius: 8px; cursor: pointer; border: 2px solid transparent; }
-#results img:hover { border-color: #000; }
+/* Стили для альбомов (результаты поиска) */
+.collection-result img { width: 100%; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: 0.2s; }
+.collection-result img:hover { border-color: #000; transform: scale(1.05); }
 
 .close-btn { width: 100%; margin-top: 25px; background: #f0f0f0; color: #000; border: none; padding: 15px; border-radius: 12px; }
 .close-btn:hover { background: #e0e0e0; }
