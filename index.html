@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VibeChart by @imaiv</title>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+</head>
+<body>
+
+    <header>
+        <div class="controls">
+            <span class="lang-label">RU</span>
+            <label class="switch">
+                <input type="checkbox" id="langToggle">
+                <span class="slider"></span>
+            </label>
+            <span class="lang-label">EN</span>
+            <button class="save-btn" id="saveBtn" onclick="saveChart()">Скачать PNG</button>
+            <button class="clear-btn" id="clearBtn" onclick="clearData()">Очистить всё</button>
+        </div>
+    </header>
+
+    <div id="capture-area">
+        <div class="grid" id="chartGrid"></div>
+    </div>
+
+    <footer>
+        by @imaiv • <span id="deleteHint" class="hint-text"></span>
+    </footer>
+
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <h3 id="modalTitle">Выберите альбом</h3>
+            <div class="search-wrapper">
+                <input type="text" id="albumInput" autocomplete="off">
+                <div id="searchLoader" class="loader"></div>
+            </div>
+            <div id="results"></div>
+            <button class="close-btn" id="closeBtn" onclick="closeModal()">Закрыть</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
