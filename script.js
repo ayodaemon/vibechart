@@ -7,6 +7,7 @@ const ui = {
         confirm: "Сбросить чарт и вернуть все ячейки?",
         tapText: "+ Выбрать",
         artistHeader: "Артисты (нажмите для дискографии):",
+        albumsHeader: "Альбомы:",
         discographyHeader: "Дискография:",
         notFound: "Ничего не найдено",
         noCollections: "Коллекции не найдены",
@@ -30,6 +31,7 @@ const ui = {
         confirm: "Reset everything and restore cells?",
         tapText: "+ Tap to add",
         artistHeader: "Artists (tap for discography):",
+        albumsHeader: "Albums:",
         discographyHeader: "Discography:",
         notFound: "Nothing found",
         noCollections: "No collections found",
@@ -85,7 +87,7 @@ function init() {
             return; 
         }
         document.getElementById('searchLoader').style.display = 'block';
-        searchTimeout = setTimeout(() => searchHybrid(q), 600);
+        searchTimeout = setTimeout(() => searchHybrid(q), 500);
     });
 }
 
@@ -171,30 +173,45 @@ function removeCell(i) {
     }
 }
 
-// 100% безопасное формирование ссылки для iTunes
+// 100% безопасное и правильное формирование URL для iTunes API
 async function fetchItunes(query, type, country) {
-    let url = '';
+    let url = new URL('https://itunes.apple.com/search');
     
     if (type === 'lookup') {
-        url = `https://itunes.apple.com/lookup?id=${query}&entity=album&limit=200&country=${country}`;
+        url = new URL('https://itunes.apple.com/lookup');
+        url.searchParams.append('id', query);
+        url.searchParams.append('entity', 'album');
+        url.searchParams.append('limit', '200');
     } else {
-        // РЕШЕНИЕ ПРОБЛЕМЫ 400 BAD REQUEST:
-        // Разбиваем строку по пробелам, кодируем части, склеиваем через "+"
-        const safeQuery = query.trim().split(/\s+/).map(encodeURIComponent).join('+');
-        
+        url.searchParams.append('term', query);
+        url.searchParams.append('media', 'music');
         if (type === 'artist') {
-            url = `https://itunes.apple.com/search?term=${safeQuery}&media=music&entity=musicArtist&limit=4&country=${country}`;
+            url.searchParams.append('entity', 'musicArtist');
+            url.searchParams.append('limit', '4');
         } else if (type === 'album') {
-            url = `https://itunes.apple.com/search?term=${safeQuery}&media=music&entity=album&limit=12&country=${country}`;
+            url.searchParams.append('entity', 'album');
+            url.searchParams.append('limit', '12');
         }
     }
+    url.searchParams.append('country', country);
 
-    const res = await fetch(url, { signal: controller.signal });
+    const res = await fetch(url.toString(), { signal: controller.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     return data.results || [];
 }
 
+// Хелпер для вывода сообщений
+function showMessage(text, isError = false) {
+    const resDiv = document.getElementById('results');
+    resDiv.innerHTML = '';
+    const msg = document.createElement('div');
+    msg.style.cssText = `grid-column: 1 / -1; text-align: center; padding: 20px; font-weight: bold; ${isError ? 'color: red;' : 'opacity: 0.5;'}`;
+    msg.textContent = text;
+    resDiv.appendChild(msg);
+}
+
+// Гибридный поиск: Альбомы + Артисты
 async function searchHybrid(q) {
     if (controller) controller.abort();
     controller = new AbortController();
@@ -203,13 +220,11 @@ async function searchHybrid(q) {
     const s = ui[currentLang];
 
     try {
-        // Обертка, чтобы одна ошибка (например в US сторе) не убила весь поиск
         const safeFetch = async (t, c) => {
             try { return await fetchItunes(q, t, c); } 
             catch (e) { if (e.name === 'AbortError') throw e; return []; }
         };
 
-        // Двойной поиск для идеального баланса (США + Россия)
         const [ruArtists, usArtists, ruAlbums, usAlbums] = await Promise.all([
             safeFetch('artist', 'ru'), safeFetch('artist', 'us'),
             safeFetch('album', 'ru'), safeFetch('album', 'us')
@@ -227,22 +242,24 @@ async function searchHybrid(q) {
         resDiv.innerHTML = '';
         
         if (uniqueArtists.length === 0 && uniqueAlbums.length === 0) {
-            resDiv.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 20px; font-weight: bold; opacity: 0.5;">${s.notFound}</div>`;
+            showMessage(s.notFound);
             return;
         }
 
+        // 1. Отрисовка артистов
         if (uniqueArtists.length > 0) {
             const artistWrap = document.createElement('div');
             artistWrap.style.cssText = 'grid-column: 1 / -1; display: flex; gap: 15px; margin-bottom: 15px; overflow-x: auto; padding-bottom: 10px;';
             
             const artistHeader = document.createElement('div');
-            artistHeader.style.cssText = 'width: 100%; font-weight: bold; margin-bottom: 10px; font-size: 14px;';
+            artistHeader.style.cssText = 'grid-column: 1 / -1; width: 100%; font-weight: bold; margin-bottom: 5px; font-size: 14px;';
             artistHeader.textContent = s.artistHeader;
             resDiv.appendChild(artistHeader);
 
             uniqueArtists.forEach(artist => {
                 const artEl = document.createElement('div');
-                artEl.className = 'artist-result html2canvas-ignore';
+                // ВАЖНО: Убрали класс html2canvas-ignore, чтобы они были видимыми!
+                artEl.className = 'artist-result';
                 artEl.style.cssText = 'flex: 0 0 auto; width: 90px; border: none; cursor: pointer;';
                 
                 if (artist.artworkUrl100) {
@@ -269,33 +286,46 @@ async function searchHybrid(q) {
             resDiv.appendChild(artistWrap);
         }
 
-        uniqueAlbums.forEach(a => {
-            if (!a.artworkUrl100) return;
-            const colEl = document.createElement('div');
-            colEl.className = 'collection-result html2canvas-ignore';
-            const img = document.createElement('img');
-            img.src = a.artworkUrl100.replace('100x100bb', '600x600bb');
-            img.title = `${a.artistName} - ${a.collectionName}`;
-            img.loading = "lazy";
-            img.crossOrigin = "anonymous";
-            img.addEventListener('click', () => {
-                chartData[activeIndex] = img.src;
-                localStorage.setItem('chartData', JSON.stringify(chartData));
-                render();
-                closeModal();
+        // 2. Отрисовка альбомов
+        if (uniqueAlbums.length > 0) {
+            // Добавляем заголовок "Альбомы", если есть и артисты, чтобы отделить их визуально
+            if (uniqueArtists.length > 0) {
+                const albumHeader = document.createElement('div');
+                albumHeader.style.cssText = 'grid-column: 1 / -1; font-weight: bold; margin-top: 5px; margin-bottom: 5px; font-size: 14px;';
+                albumHeader.textContent = s.albumsHeader;
+                resDiv.appendChild(albumHeader);
+            }
+
+            uniqueAlbums.forEach(a => {
+                if (!a.artworkUrl100) return;
+                const colEl = document.createElement('div');
+                // ВАЖНО: Убрали класс html2canvas-ignore!
+                colEl.className = 'collection-result';
+                const img = document.createElement('img');
+                img.src = a.artworkUrl100.replace('100x100bb', '600x600bb');
+                img.title = `${a.artistName} - ${a.collectionName}`;
+                img.loading = "lazy";
+                img.crossOrigin = "anonymous";
+                img.addEventListener('click', () => {
+                    chartData[activeIndex] = img.src;
+                    localStorage.setItem('chartData', JSON.stringify(chartData));
+                    render();
+                    closeModal();
+                });
+                colEl.appendChild(img);
+                resDiv.appendChild(colEl);
             });
-            colEl.appendChild(img);
-            resDiv.appendChild(colEl);
-        });
+        }
 
     } catch(e) {
         if (e.name !== 'AbortError') {
             document.getElementById('searchLoader').style.display = 'none';
-            resDiv.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; color: red; padding: 20px; font-weight: bold;">${s.networkError}</div>`;
+            showMessage(s.networkError, true);
         }
     }
 }
 
+// Загрузка дискографии
 async function loadArtistDiscography(artistId, artistName) {
     document.getElementById('searchLoader').style.display = 'block';
     const resDiv = document.getElementById('results');
@@ -317,7 +347,7 @@ async function loadArtistDiscography(artistId, artistName) {
         const uniqueAlbums = Array.from(new Map(combined.map(a => [a.collectionId, a])).values());
 
         if (uniqueAlbums.length === 0) {
-            resDiv.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 20px; font-weight: bold; opacity: 0.5;">${s.noCollections}</div>`;
+            showMessage(s.noCollections);
             return;
         }
 
@@ -329,7 +359,8 @@ async function loadArtistDiscography(artistId, artistName) {
         uniqueAlbums.forEach(a => {
             if (!a.artworkUrl100) return;
             const colEl = document.createElement('div');
-            colEl.className = 'collection-result html2canvas-ignore';
+            // ВАЖНО: Убрали класс html2canvas-ignore!
+            colEl.className = 'collection-result';
             const img = document.createElement('img');
             img.src = a.artworkUrl100.replace('100x100bb', '600x600bb');
             img.title = a.collectionName; 
@@ -347,7 +378,7 @@ async function loadArtistDiscography(artistId, artistName) {
     } catch(e) {
         if (e.name !== 'AbortError') {
             document.getElementById('searchLoader').style.display = 'none';
-            resDiv.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; color: red; padding: 20px; font-weight: bold;">${s.networkError}</div>`;
+            showMessage(s.networkError, true);
         }
     }
 }
@@ -369,6 +400,7 @@ function closeModal() {
     activeIndex = null;
 }
 
+// Экспорт (не требует классов невидимки на результатах поиска)
 async function saveChart() {
     const area = document.getElementById('capture-area');
     const gridEl = document.getElementById('chartGrid');
