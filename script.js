@@ -1,172 +1,195 @@
-* { box-sizing: border-box; }
-
-:root {
-    --bg-color: #ffffff;
-    --font-main: 'Instrument Sans', sans-serif;
-    --transition: all 0.2s ease;
-}
-
-body { 
-    background: var(--bg-color); 
-    color: #000;
-    font-family: var(--font-main);
-    display: flex; 
-    flex-direction: column;
-    align-items: center; 
-    padding: 40px 20px;
-    margin: 0;
-}
-
-header { 
-    margin-bottom: 30px; 
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
-
-.controls { 
-    display: flex; 
-    flex-wrap: wrap; 
-    justify-content: center; 
-    align-items: center; 
-    gap: 15px; 
-}
-
-/* Группа переключения языка */
-.lang-wrapper {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-weight: 700;
-    font-size: 14px;
-}
-
-.switch { position: relative; display: inline-block; width: 46px; height: 24px; }
-.switch input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #f0f0f0; transition: .4s; border-radius: 34px; border: 2px solid #000; }
-.slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px; background-color: #000; transition: .4s; border-radius: 50%; }
-input:checked + .slider:before { transform: translateX(22px); }
-
-/* Красивые кнопки */
-button { 
-    padding: 10px 20px; 
-    border-radius: 8px; 
-    font-family: var(--font-main); 
-    font-size: 14px; 
-    font-weight: 700; 
-    cursor: pointer; 
-    transition: var(--transition); 
-}
-.save-btn { background: #000; color: #fff; border: 2px solid #000; }
-.save-btn:hover { background: #333; border-color: #333; }
-
-.clear-btn { background: #fff; color: #ff3b3b; border: 2px solid #ff3b3b; }
-.clear-btn:hover { background: #ff3b3b; color: #fff; }
-
-/* Подсказки */
-.mobile-hint { display: none; font-size: 12px; opacity: 0.5; margin-top: 15px; text-align: center; }
-footer { margin-top: 50px; font-weight: 700; font-size: 13px; text-align: center; }
-#desktopHint { opacity: 0.5; font-weight: 400; }
-
-/* Сетка */
-#capture-area { background: #fff; padding: 15px; width: 100%; max-width: 1200px; display: flex; justify-content: center; }
-.grid { 
-    display: grid; 
-    grid-template-columns: repeat(6, 180px); 
-    gap: 12px; 
-}
-
-/* Форс десктопа для генерации картинки */
-.force-desktop { grid-template-columns: repeat(6, 180px) !important; width: 1150px !important; }
-
-/* Ячейки */
-.cell {
-    width: 100%; 
-    height: 250px; 
-    border: 3px solid #000; 
-    display: flex; 
-    flex-direction: column;
-    background: #fff; 
-    cursor: pointer; 
-    transition: var(--transition);
-}
-.cell:hover { transform: translateY(-3px); box-shadow: 0 6px 12px rgba(0,0,0,0.08); }
-
-.cell img { width: 100%; height: 180px; object-fit: cover; border-bottom: 3px solid #000; }
-
-/* Пустая ячейка с надписью "Тапни" */
-.cell .empty-img { 
-    height: 180px; 
-    background: #fafafa; 
-    border-bottom: 3px solid #000; 
-    display: flex; 
-    align-items: center; 
-    justify-content: center;
-}
-.tap-hint { font-size: 12px; font-weight: 700; opacity: 0.3; text-transform: uppercase; }
-
-.cell span {
-    font-size: 11px; text-align: center; text-transform: uppercase; padding: 10px 5px;
-    display: flex; align-items: center; justify-content: center; flex-grow: 1; font-weight: 700; line-height: 1.2;
-}
-
-/* --- АДАПТАЦИЯ ПОД МОБИЛКИ --- */
-@media (max-width: 1100px) {
-    body { padding: 20px 10px; }
-    
-    .grid { 
-        grid-template-columns: 1fr; 
-        width: 100%; 
-        max-width: 400px; /* Широкие, но не на весь экран планшета */
-        gap: 20px;
+const ui = {
+    ru: {
+        placeholder: "Название альбома...",
+        modalTitle: "Что слушаем сегодня?",
+        closeBtn: "Закрыть",
+        saveBtn: "Скачать PNG",
+        clearBtn: "Очистить всё",
+        confirm: "Сбросить чарт и вернуть все ячейки?",
+        hint: "ПК: ПКМ для удаления • Мобилка: долгий тап",
+        tapText: "+ Выбрать",
+        cats: [
+            "Любимый альбом", "Лучший сюжетный", "Любимая обложка", "Когда-нибудь послушаю", "Произвело влияние", "Помогает в трудные дни",
+            "Тебе нравится / никто не любит", "Все любят / тебе не нравится", "Недооцененный", "Переоцененный", "Не мое, но...", "Лучшие инструменталы",
+            "Лучший вокал", "Простой, но классный", "Лучший микстейп", "Любимое неизданное", "Большое разочарование", "Большой сюрприз",
+            "Лучший саундтрек", "Самый необычный", "Любимая группа", "Любимый артист", "Лучший EP", "Самый депрессивный"
+        ]
+    },
+    en: {
+        placeholder: "Album name...",
+        modalTitle: "What's the vibe?",
+        closeBtn: "Close",
+        saveBtn: "Download PNG",
+        clearBtn: "Clear all",
+        confirm: "Reset everything and restore cells?",
+        hint: "PC: Right-click to delete • Mobile: Long press",
+        tapText: "+ Tap to add",
+        cats: [
+            "Favorite Album", "Best Concept", "Favorite Cover", "Will Listen Someday", "Personal Influence", "Helps in Hard Times",
+            "I Like / Others Don't", "Others Like / I Don't", "Underrated", "Overrated", "Not My Thing, But...", "Best Instrumentals",
+            "Best Vocals", "Simple But Cool", "Best Mixtape", "Favorite Unreleased", "Big Disappointment", "Big Surprise",
+            "Best Soundtrack", "Most Unusual", "Favorite Band", "Favorite Artist", "Best EP", "Most Depressing"
+        ]
     }
+};
+
+let currentLang = localStorage.getItem('lang') || 'ru';
+let chartData = JSON.parse(localStorage.getItem('chartData')) || Array(24).fill("");
+let hiddenCells = JSON.parse(localStorage.getItem('hiddenCells')) || Array(24).fill(false);
+let activeIndex = null;
+let searchTimeout = null;
+let controller = null;
+
+function init() {
+    document.getElementById('langToggle').checked = (currentLang === 'en');
+    updateUI();
+    render();
     
-    .cell { 
-        height: auto; /* Высота подстроится под ширину */
+    document.getElementById('albumInput').addEventListener('input', (e) => {
+        const q = e.target.value.trim();
+        clearTimeout(searchTimeout);
+        if (!q) { 
+            document.getElementById('results').innerHTML = ''; 
+            document.getElementById('searchLoader').style.display = 'none';
+            return; 
+        }
+        document.getElementById('searchLoader').style.display = 'block';
+        searchTimeout = setTimeout(() => search(q), 400);
+    });
+}
+
+function updateUI() {
+    const s = ui[currentLang];
+    document.getElementById('albumInput').placeholder = s.placeholder;
+    document.getElementById('modalTitle').innerText = s.modalTitle;
+    document.getElementById('closeBtn').innerText = s.closeBtn;
+    document.getElementById('saveBtn').innerText = s.saveBtn;
+    document.getElementById('clearBtn').innerText = s.clearBtn;
+    
+    // Заполняем подсказки (и для мобилы, и для ПК)
+    document.getElementById('mobileHint').innerText = "by @imaiv • " + s.hint;
+    document.getElementById('desktopHint').innerText = s.hint;
+}
+
+function render() {
+    const grid = document.getElementById('chartGrid');
+    grid.innerHTML = '';
+    
+    ui[currentLang].cats.forEach((text, i) => {
+        if (hiddenCells[i]) return;
+        
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        const img = chartData[i];
+        
+        // В пустой ячейке теперь выводится текст-подсказка
+        cell.innerHTML = `
+            ${img ? `<img src="${img}" alt="cover">` : `<div class="empty-img"><span class="tap-hint">${ui[currentLang].tapText}</span></div>`}
+            <span>${text}</span>
+        `;
+        
+        cell.onclick = () => openModal(i);
+        
+        // Удаление (ПКМ)
+        cell.oncontextmenu = (e) => {
+            e.preventDefault();
+            removeCell(i);
+        };
+
+        // Удаление (Long Press для мобилок)
+        let timer;
+        cell.ontouchstart = () => { timer = setTimeout(() => removeCell(i), 800); };
+        cell.ontouchend = () => clearTimeout(timer);
+        cell.ontouchmove = () => clearTimeout(timer); // Если палец съехал - отменяем удаление
+
+        grid.appendChild(cell);
+    });
+}
+
+function removeCell(i) {
+    if(confirm(currentLang === 'ru' ? "Скрыть эту ячейку?" : "Hide this cell?")) {
+        hiddenCells[i] = true;
+        localStorage.setItem('hiddenCells', JSON.stringify(hiddenCells));
+        render();
     }
+}
+
+async function search(q) {
+    if (controller) controller.abort();
+    controller = new AbortController();
+    try {
+        const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=album&limit=15`, { signal: controller.signal });
+        const data = await res.json();
+        const resDiv = document.getElementById('results');
+        resDiv.innerHTML = '';
+        document.getElementById('searchLoader').style.display = 'none';
+        
+        data.results.forEach(a => {
+            const img = document.createElement('img');
+            img.src = a.artworkUrl100.replace('100x100bb', '600x600bb');
+            img.onclick = () => {
+                chartData[activeIndex] = img.src;
+                localStorage.setItem('chartData', JSON.stringify(chartData));
+                render();
+                closeModal();
+            };
+            resDiv.appendChild(img);
+        });
+    } catch(e) {}
+}
+
+function openModal(i) {
+    activeIndex = i;
+    document.getElementById('modal').style.display = 'block';
+    document.getElementById('albumInput').value = '';
+    document.getElementById('results').innerHTML = '';
+    document.getElementById('albumInput').focus();
+}
+
+function closeModal() {
+    document.getElementById('modal').style.display = 'none';
+    if (controller) controller.abort();
+}
+
+function saveChart() {
+    const area = document.getElementById('capture-area');
+    const gridEl = document.getElementById('chartGrid');
     
-    /* Сохраняем квадратную пропорцию обложки */
-    .cell img, .cell .empty-img { 
-        height: auto; 
-        aspect-ratio: 1 / 1; 
+    // Форсируем десктопную сетку для скачивания
+    gridEl.classList.add('force-desktop');
+    
+    // Прячем водяные знаки "Тапни" перед генерацией картинки
+    const hints = document.querySelectorAll('.tap-hint');
+    hints.forEach(h => h.style.display = 'none');
+    
+    html2canvas(area, { backgroundColor: "#ffffff", scale: 3, useCORS: true }).then(canvas => {
+        const a = document.createElement('a');
+        a.download = `music-chart-imaiv.png`;
+        a.href = canvas.toDataURL();
+        a.click();
+        
+        // Возвращаем всё как было
+        gridEl.classList.remove('force-desktop');
+        hints.forEach(h => h.style.display = 'block');
+    });
+}
+
+function clearData() {
+    if (confirm(ui[currentLang].confirm)) {
+        chartData = Array(24).fill("");
+        hiddenCells = Array(24).fill(false);
+        localStorage.clear();
+        render();
     }
-    
-    .cell span { padding: 15px 5px; font-size: 13px; }
-
-    footer { display: none; } /* Прячем футер */
-    .mobile-hint { display: block; } /* Показываем подсказку под кнопками */
 }
 
-/* Модалка */
-.modal { display: none; position: fixed; z-index: 2000; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.95); backdrop-filter: blur(10px); }
-.modal-content { 
-    margin: 5% auto; padding: 25px; width: 95%; max-width: 700px;
-    text-align: center; display: flex; flex-direction: column;
-}
+document.getElementById('langToggle').onchange = (e) => {
+    currentLang = e.target.checked ? 'en' : 'ru';
+    localStorage.setItem('lang', currentLang);
+    updateUI();
+    render();
+};
 
-#albumInput { 
-    width: 100%; padding: 16px; border: 3px solid #000; border-radius: 12px; 
-    font-family: var(--font-main); font-size: 16px; outline: none; margin-bottom: 5px;
-}
+window.onclick = (e) => { if (e.target.id === 'modal') closeModal(); };
 
-#results { 
-    display: grid; grid-template-columns: repeat(3, 1fr); 
-    gap: 15px; margin-top: 20px; max-height: 55vh; overflow-y: auto; padding: 5px;
-}
-
-@media (max-width: 600px) {
-    #results { grid-template-columns: repeat(2, 1fr); }
-}
-
-#results img { width: 100%; border-radius: 8px; cursor: pointer; border: 2px solid transparent; }
-#results img:hover { border-color: #000; }
-
-.close-btn { 
-    width: 100%; margin-top: 25px; background: #f0f0f0; color: #000; border: none; padding: 15px;
-}
-.close-btn:hover { background: #e0e0e0; }
-
-.loader { display: none; margin: 15px auto; width: 25px; height: 25px; border: 3px solid #f0f0f0; border-top: 3px solid #000; border-radius: 50%; animation: spin 1s linear infinite; }
-@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-.html2canvas-ignore { display: none !important; }
+init();
