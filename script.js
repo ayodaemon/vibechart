@@ -6,8 +6,11 @@ const ui = {
         saveBtn: "Скачать PNG",
         clearBtn: "Очистить всё",
         confirm: "Сбросить чарт и вернуть все ячейки?",
-        hint: "ПК: ПКМ для удаления • Мобилка: долгий тап",
         tapText: "+ Выбрать",
+        hints: {
+            desktop: "Для удаления ячейки: ПКМ",
+            mobile: "Для удаления ячейки: долгий тап"
+        },
         cats: [
             "Любимый альбом", "Лучший сюжетный", "Любимая обложка", "Когда-нибудь послушаю", "Произвело влияние", "Помогает в трудные дни",
             "Тебе нравится / никто не любит", "Все любят / тебе не нравится", "Недооцененный", "Переоцененный", "Не мое, но...", "Лучшие инструменталы",
@@ -22,8 +25,11 @@ const ui = {
         saveBtn: "Download PNG",
         clearBtn: "Clear all",
         confirm: "Reset everything and restore cells?",
-        hint: "PC: Right-click to delete • Mobile: Long press",
         tapText: "+ Tap to add",
+        hints: {
+            desktop: "To delete a cell: Right-click",
+            mobile: "To delete a cell: long press"
+        },
         cats: [
             "Favorite Album", "Best Concept", "Favorite Cover", "Will Listen Someday", "Personal Influence", "Helps in Hard Times",
             "I Like / Others Don't", "Others Like / I Don't", "Underrated", "Overrated", "Not My Thing, But...", "Best Instrumentals",
@@ -39,6 +45,11 @@ let hiddenCells = JSON.parse(localStorage.getItem('hiddenCells')) || Array(24).f
 let activeIndex = null;
 let searchTimeout = null;
 let controller = null;
+
+// Функция проверки мобильного устройства
+function isMobileDevice() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 1100;
+}
 
 function init() {
     document.getElementById('langToggle').checked = (currentLang === 'en');
@@ -66,9 +77,12 @@ function updateUI() {
     document.getElementById('saveBtn').innerText = s.saveBtn;
     document.getElementById('clearBtn').innerText = s.clearBtn;
     
-    // Заполняем подсказки (и для мобилы, и для ПК)
-    document.getElementById('mobileHint').innerText = "by @imaiv • " + s.hint;
-    document.getElementById('desktopHint').innerText = s.hint;
+    // Выбираем правильную подсказку в зависимости от устройства
+    const hintText = isMobileDevice() ? s.hints.mobile : s.hints.desktop;
+    
+    // Вставляем везде, CSS сам решит, что показывать
+    document.getElementById('mobileHint').innerText = "by @imaiv • " + hintText;
+    document.getElementById('desktopHint').innerText = hintText;
 }
 
 function render() {
@@ -82,7 +96,6 @@ function render() {
         cell.className = 'cell';
         const img = chartData[i];
         
-        // В пустой ячейке теперь выводится текст-подсказка
         cell.innerHTML = `
             ${img ? `<img src="${img}" alt="cover">` : `<div class="empty-img"><span class="tap-hint">${ui[currentLang].tapText}</span></div>`}
             <span>${text}</span>
@@ -90,17 +103,15 @@ function render() {
         
         cell.onclick = () => openModal(i);
         
-        // Удаление (ПКМ)
         cell.oncontextmenu = (e) => {
             e.preventDefault();
             removeCell(i);
         };
 
-        // Удаление (Long Press для мобилок)
         let timer;
         cell.ontouchstart = () => { timer = setTimeout(() => removeCell(i), 800); };
         cell.ontouchend = () => clearTimeout(timer);
-        cell.ontouchmove = () => clearTimeout(timer); // Если палец съехал - отменяем удаление
+        cell.ontouchmove = () => clearTimeout(timer);
 
         grid.appendChild(cell);
     });
@@ -155,10 +166,7 @@ function saveChart() {
     const area = document.getElementById('capture-area');
     const gridEl = document.getElementById('chartGrid');
     
-    // Форсируем десктопную сетку для скачивания
     gridEl.classList.add('force-desktop');
-    
-    // Прячем водяные знаки "Тапни" перед генерацией картинки
     const hints = document.querySelectorAll('.tap-hint');
     hints.forEach(h => h.style.display = 'none');
     
@@ -168,7 +176,6 @@ function saveChart() {
         a.href = canvas.toDataURL();
         a.click();
         
-        // Возвращаем всё как было
         gridEl.classList.remove('force-desktop');
         hints.forEach(h => h.style.display = 'block');
     });
@@ -191,5 +198,8 @@ document.getElementById('langToggle').onchange = (e) => {
 };
 
 window.onclick = (e) => { if (e.target.id === 'modal') closeModal(); };
+
+// Обновляем текст подсказки при изменении размера окна (если перетаскивают на десктопе)
+window.addEventListener('resize', updateUI);
 
 init();
