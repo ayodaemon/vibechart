@@ -127,24 +127,32 @@ function removeCell(i) {
     }
 }
 
-// Этап 1: Двойной поиск артистов (США + Россия) для баланса
+// Надежная функция для запросов (не ломается при отмене)
+async function fetchItunes(url, signal) {
+    try {
+        const res = await fetch(url, { signal });
+        const data = await res.json();
+        return data.results || [];
+    } catch (err) {
+        if (err.name === 'AbortError') throw err; // Обязательно прокидываем отмену дальше
+        return []; // Если другая ошибка, возвращаем пустоту, чтобы не сломать всё
+    }
+}
+
+// Этап 1: Двойной поиск артистов
 async function searchArtist(q) {
     if (controller) controller.abort();
     controller = new AbortController();
+    
     try {
-        // Делаем два параллельных запроса в разные сторы
-        const [resRu, resUs] = await Promise.all([
-            fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=artist&limit=5&country=ru`, { signal: controller.signal }).catch(() => ({ json: () => ({ results: [] }) })),
-            fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=artist&limit=5&country=us`, { signal: controller.signal }).catch(() => ({ json: () => ({ results: [] }) }))
+        const [resultsRu, resultsUs] = await Promise.all([
+            fetchItunes(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=artist&limit=5&country=ru`, controller.signal),
+            fetchItunes(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=artist&limit=5&country=us`, controller.signal)
         ]);
         
-        const dataRu = await resRu.json();
-        const dataUs = await resUs.json();
+        const combined = [...resultsRu, ...resultsUs];
         
-        // Объединяем списки артистов из RU и US
-        const combined = [...(dataRu.results || []), ...(dataUs.results || [])];
-        
-        // Удаляем дубликаты (один и тот же артист может быть в обоих сторах)
+        // Убираем дубликаты артистов
         const uniqueArtists = Array.from(new Map(combined.map(a => [a.artistId, a])).values()).slice(0, 8);
 
         const resDiv = document.getElementById('results');
@@ -161,7 +169,7 @@ async function searchArtist(q) {
             const artEl = document.createElement('div');
             artEl.className = 'artist-result html2canvas-ignore';
             artEl.innerHTML = `
-                ${artist.artworkUrl100 ? `<img src="${artist.artworkUrl100.replace('100x100bb', '600x600bb')}">` : `<div style="width:100px; height:100px; border-radius:50%; border:2px solid #000; display:flex; align-items:center; justify-content:center; background:#eee; font-size:40px;">👤</div>`}
+                ${artist.artworkUrl100 ? `<img src="${artist.artworkUrl100.replace('100x100bb', '600x600bb')}" loading="lazy">` : `<div style="width:100px; height:100px; border-radius:50%; border:2px solid #000; display:flex; align-items:center; justify-content:center; background:#eee; font-size:40px;">👤</div>`}
                 <span class="artist-name">${artist.artistName}</span>
             `;
             artEl.onclick = () => {
@@ -170,6 +178,7 @@ async function searchArtist(q) {
             resDiv.appendChild(artEl);
         });
     } catch(e) {
+        // Игнорируем ошибку отмены, остальные логируем
         if (e.name !== 'AbortError') {
             document.getElementById('searchLoader').style.display = 'none';
         }
@@ -188,20 +197,17 @@ async function loadArtistDiscography(artistId, artistName) {
     document.getElementById('artistDiscographyHeader').style.display = 'block';
 
     try {
-        // Подтягиваем альбомы из обоих магазинов
-        const [resRu, resUs] = await Promise.all([
-            fetch(`https://itunes.apple.com/lookup?id=${artistId}&entity=album&limit=200&country=ru`).catch(() => ({ json: () => ({ results: [] }) })),
-            fetch(`https://itunes.apple.com/lookup?id=${artistId}&entity=album&limit=200&country=us`).catch(() => ({ json: () => ({ results: [] }) }))
+        const [resultsRu, resultsUs] = await Promise.all([
+            fetchItunes(`https://itunes.apple.com/lookup?id=${artistId}&entity=album&limit=200&country=ru`, controller.signal),
+            fetchItunes(`https://itunes.apple.com/lookup?id=${artistId}&entity=album&limit=200&country=us`, controller.signal)
         ]);
         
-        const dataRu = await resRu.json();
-        const dataUs = await resUs.json();
         document.getElementById('searchLoader').style.display = 'none';
         
-        // Первый элемент - сам артист, убираем его из выборки
-        const collectionsRu = dataRu.results ? dataRu.results.slice(1) : [];
-        const collectionsUs = dataUs.results ? dataUs.results.slice(1) : [];
-        const combined = [...collectionsRu, ...collectionsUs];
+        // Отфильтровываем только альбомы (т.к. поиск по ID возвращает и самого артиста)
+        const albumsRu = resultsRu.filter(item => item.wrapperType === 'collection');
+        const albumsUs = resultsUs.filter(item => item.wrapperType === 'collection');
+        const combined = [...albumsRu, ...albumsUs];
         
         // Убираем дубликаты альбомов
         const uniqueAlbums = Array.from(new Map(combined.map(a => [a.collectionId, a])).values());
@@ -211,7 +217,7 @@ async function loadArtistDiscography(artistId, artistName) {
             return;
         }
 
-        // Сортируем альбомы по дате релиза (от свежих к старым)
+        // Сортируем альбомы по дате релиза (свежие сверху)
         uniqueAlbums.sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate));
 
         uniqueAlbums.forEach(a => {
@@ -219,7 +225,8 @@ async function loadArtistDiscography(artistId, artistName) {
             colEl.className = 'collection-result html2canvas-ignore';
             const img = document.createElement('img');
             img.src = a.artworkUrl100.replace('100x100bb', '600x600bb');
-            img.title = a.collectionName; // Всплывающая подсказка с названием
+            img.title = a.collectionName; 
+            img.loading = "lazy";
             img.onclick = () => {
                 chartData[activeIndex] = img.src;
                 localStorage.setItem('chartData', JSON.stringify(chartData));
@@ -230,7 +237,9 @@ async function loadArtistDiscography(artistId, artistName) {
             resDiv.appendChild(colEl);
         });
     } catch(e) {
-        document.getElementById('searchLoader').style.display = 'none';
+        if (e.name !== 'AbortError') {
+            document.getElementById('searchLoader').style.display = 'none';
+        }
     }
 }
 
