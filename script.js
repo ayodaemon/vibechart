@@ -1,7 +1,6 @@
 const ui = {
     ru: {
         placeholder: "Название альбома...",
-        modalTitle: "Что слушаем сегодня?",
         closeBtn: "Закрыть",
         saveBtn: "Скачать PNG",
         clearBtn: "Очистить всё",
@@ -20,7 +19,6 @@ const ui = {
     },
     en: {
         placeholder: "Album name...",
-        modalTitle: "What's the vibe?",
         closeBtn: "Close",
         saveBtn: "Download PNG",
         clearBtn: "Clear all",
@@ -46,7 +44,6 @@ let activeIndex = null;
 let searchTimeout = null;
 let controller = null;
 
-// Функция проверки мобильного устройства
 function isMobileDevice() {
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 1100;
 }
@@ -72,15 +69,16 @@ function init() {
 function updateUI() {
     const s = ui[currentLang];
     document.getElementById('albumInput').placeholder = s.placeholder;
-    document.getElementById('modalTitle').innerText = s.modalTitle;
     document.getElementById('closeBtn').innerText = s.closeBtn;
     document.getElementById('saveBtn').innerText = s.saveBtn;
     document.getElementById('clearBtn').innerText = s.clearBtn;
     
-    // Выбираем правильную подсказку в зависимости от устройства
-    const hintText = isMobileDevice() ? s.hints.mobile : s.hints.desktop;
+    // Если модалка открыта, динамически переводим ее заголовок
+    if (activeIndex !== null && document.getElementById('modal').style.display === 'block') {
+        document.getElementById('modalTitle').innerText = s.cats[activeIndex];
+    }
     
-    // Вставляем везде, CSS сам решит, что показывать
+    const hintText = isMobileDevice() ? s.hints.mobile : s.hints.desktop;
     document.getElementById('mobileHint').innerText = "by @imaiv • " + hintText;
     document.getElementById('desktopHint').innerText = hintText;
 }
@@ -151,6 +149,9 @@ async function search(q) {
 
 function openModal(i) {
     activeIndex = i;
+    // Подставляем название ячейки в заголовок
+    document.getElementById('modalTitle').innerText = ui[currentLang].cats[i];
+    
     document.getElementById('modal').style.display = 'block';
     document.getElementById('albumInput').value = '';
     document.getElementById('results').innerHTML = '';
@@ -198,8 +199,6 @@ document.getElementById('langToggle').onchange = (e) => {
 };
 
 window.onclick = (e) => { if (e.target.id === 'modal') closeModal(); };
-
-// Обновляем текст подсказки при изменении размера окна (если перетаскивают на десктопе)
 window.addEventListener('resize', updateUI);
 
 init();
