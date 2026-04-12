@@ -1,13 +1,13 @@
 const ui = {
     ru: {
-        placeholder: "Начните вводить имя артиста...",
+        placeholder: "Название альбома или артиста...",
         closeBtn: "Закрыть",
         saveBtn: "Скачать PNG",
         clearBtn: "Очистить всё",
         confirm: "Сбросить чарт и вернуть все ячейки?",
         tapText: "+ Выбрать",
-        artistHeader: "Результаты поиска:",
-        discographyHeader: "Дискография артиста:",
+        artistHeader: "Артисты (нажмите для дискографии):",
+        discographyHeader: "Дискография:",
         hints: {
             desktop: "Для удаления ячейки: ПКМ",
             mobile: "Для удаления ячейки: долгий тап"
@@ -20,14 +20,14 @@ const ui = {
         ]
     },
     en: {
-        placeholder: "Start typing artist name...",
+        placeholder: "Album or artist name...",
         closeBtn: "Close",
         saveBtn: "Download PNG",
         clearBtn: "Clear all",
         confirm: "Reset everything and restore cells?",
         tapText: "+ Tap to add",
-        artistHeader: "Search Results:",
-        discographyHeader: "Artist Discography:",
+        artistHeader: "Artists (tap for discography):",
+        discographyHeader: "Discography:",
         hints: {
             desktop: "To delete a cell: Right-click",
             mobile: "To delete a cell: long press"
@@ -67,7 +67,7 @@ function init() {
             return; 
         }
         document.getElementById('searchLoader').style.display = 'block';
-        searchTimeout = setTimeout(() => searchArtist(q), 400);
+        searchTimeout = setTimeout(() => searchHybrid(q), 400);
     });
 }
 
@@ -127,65 +127,109 @@ function removeCell(i) {
     }
 }
 
-// Надежная функция для запросов (не ломается при отмене)
+// Защищенный загрузчик
 async function fetchItunes(url, signal) {
     try {
         const res = await fetch(url, { signal });
         const data = await res.json();
         return data.results || [];
     } catch (err) {
-        if (err.name === 'AbortError') throw err; // Обязательно прокидываем отмену дальше
-        return []; // Если другая ошибка, возвращаем пустоту, чтобы не сломать всё
+        if (err.name === 'AbortError') throw err; 
+        return []; 
     }
 }
 
-// Этап 1: Двойной поиск артистов
-async function searchArtist(q) {
+// Гибридный поиск: ищем и альбомы, и артистов
+async function searchHybrid(q) {
     if (controller) controller.abort();
     controller = new AbortController();
     
     try {
-        const [resultsRu, resultsUs] = await Promise.all([
-            fetchItunes(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=artist&limit=5&country=ru`, controller.signal),
-            fetchItunes(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=artist&limit=5&country=us`, controller.signal)
+        const query = encodeURIComponent(q);
+        
+        // 4 параллельных запроса (RU + US) х (Альбомы + Артисты)
+        const [ruAlbums, usAlbums, ruArtists, usArtists] = await Promise.all([
+            fetchItunes(`https://itunes.apple.com/search?term=${query}&entity=album&limit=12&country=ru`, controller.signal),
+            fetchItunes(`https://itunes.apple.com/search?term=${query}&entity=album&limit=12&country=us`, controller.signal),
+            fetchItunes(`https://itunes.apple.com/search?term=${query}&entity=artist&limit=3&country=ru`, controller.signal),
+            fetchItunes(`https://itunes.apple.com/search?term=${query}&entity=artist&limit=3&country=us`, controller.signal)
         ]);
         
-        const combined = [...resultsRu, ...resultsUs];
-        
-        // Убираем дубликаты артистов
-        const uniqueArtists = Array.from(new Map(combined.map(a => [a.artistId, a])).values()).slice(0, 8);
+        // Убираем дубликаты
+        const uniqueAlbums = Array.from(new Map([...ruAlbums, ...usAlbums].map(a => [a.collectionId, a])).values());
+        const uniqueArtists = Array.from(new Map([...ruArtists, ...usArtists].map(a => [a.artistId, a])).values()).slice(0, 4);
 
         const resDiv = document.getElementById('results');
         resDiv.innerHTML = '';
         document.getElementById('searchLoader').style.display = 'none';
         document.getElementById('artistDiscographyHeader').style.display = 'none';
         
-        if (uniqueArtists.length === 0) {
-            resDiv.innerHTML = '<p style="grid-column: 1/4; opacity: 0.5;">Ничего не найдено</p>';
+        if (uniqueAlbums.length === 0 && uniqueArtists.length === 0) {
+            resDiv.innerHTML = '<p style="grid-column: 1 / -1; opacity: 0.5;">Ничего не найдено</p>';
             return;
         }
 
-        uniqueArtists.forEach(artist => {
-            const artEl = document.createElement('div');
-            artEl.className = 'artist-result html2canvas-ignore';
-            artEl.innerHTML = `
-                ${artist.artworkUrl100 ? `<img src="${artist.artworkUrl100.replace('100x100bb', '600x600bb')}" loading="lazy">` : `<div style="width:100px; height:100px; border-radius:50%; border:2px solid #000; display:flex; align-items:center; justify-content:center; background:#eee; font-size:40px;">👤</div>`}
-                <span class="artist-name">${artist.artistName}</span>
-            `;
-            artEl.onclick = () => {
-                loadArtistDiscography(artist.artistId, artist.artistName);
+        // 1. Отрисовка строки с артистами (если есть совпадения)
+        if (uniqueArtists.length > 0) {
+            const artistWrap = document.createElement('div');
+            artistWrap.style.gridColumn = '1 / -1'; // Растягиваем на всю ширину модалки
+            artistWrap.style.display = 'flex';
+            artistWrap.style.gap = '15px';
+            artistWrap.style.marginBottom = '15px';
+            artistWrap.style.overflowX = 'auto'; // Горизонтальный скролл
+            artistWrap.style.paddingBottom = '10px';
+            
+            // Заголовок для артистов
+            const artistHeader = document.createElement('div');
+            artistHeader.style.width = '100%';
+            artistHeader.style.fontWeight = 'bold';
+            artistHeader.style.marginBottom = '10px';
+            artistHeader.style.fontSize = '14px';
+            artistHeader.innerText = ui[currentLang].artistHeader;
+            resDiv.appendChild(artistHeader);
+
+            uniqueArtists.forEach(artist => {
+                const artEl = document.createElement('div');
+                artEl.className = 'artist-result html2canvas-ignore';
+                artEl.style.flex = '0 0 auto';
+                artEl.style.width = '90px';
+                artEl.style.border = 'none';
+                artEl.innerHTML = `
+                    ${artist.artworkUrl100 ? `<img src="${artist.artworkUrl100.replace('100x100bb', '200x200bb')}" style="width:75px; height:75px; border-radius:50%; object-fit:cover; border:2px solid #000; display:block; margin:0 auto 8px auto;">` : `<div style="width:75px; height:75px; border-radius:50%; border:2px solid #000; display:flex; align-items:center; justify-content:center; background:#eee; font-size:30px; margin:0 auto 8px auto;">👤</div>`}
+                    <div style="font-size:11px; font-weight:700; text-align:center; text-transform:uppercase; line-height:1.2; word-break:break-word;">${artist.artistName}</div>
+                `;
+                artEl.onclick = () => loadArtistDiscography(artist.artistId, artist.artistName);
+                artistWrap.appendChild(artEl);
+            });
+            resDiv.appendChild(artistWrap);
+        }
+
+        // 2. Отрисовка найденных обложек альбомов
+        uniqueAlbums.forEach(a => {
+            const colEl = document.createElement('div');
+            colEl.className = 'collection-result html2canvas-ignore';
+            const img = document.createElement('img');
+            img.src = a.artworkUrl100.replace('100x100bb', '600x600bb');
+            img.title = `${a.artistName} - ${a.collectionName}`;
+            img.loading = "lazy";
+            img.onclick = () => {
+                chartData[activeIndex] = img.src;
+                localStorage.setItem('chartData', JSON.stringify(chartData));
+                render();
+                closeModal();
             };
-            resDiv.appendChild(artEl);
+            colEl.appendChild(img);
+            resDiv.appendChild(colEl);
         });
+
     } catch(e) {
-        // Игнорируем ошибку отмены, остальные логируем
         if (e.name !== 'AbortError') {
             document.getElementById('searchLoader').style.display = 'none';
         }
     }
 }
 
-// Этап 2: Двойной поиск дискографии
+// Загрузка дискографии артиста
 async function loadArtistDiscography(artistId, artistName) {
     document.getElementById('searchLoader').style.display = 'block';
     const resDiv = document.getElementById('results');
@@ -193,10 +237,11 @@ async function loadArtistDiscography(artistId, artistName) {
 
     const s = ui[currentLang];
     document.getElementById('modalTitle').innerText = `${s.cats[activeIndex]} > ${artistName}`;
-    document.getElementById('artistDiscographyHeader').innerText = `${s.discographyHeader}`;
+    document.getElementById('artistDiscographyHeader').innerText = s.discographyHeader;
     document.getElementById('artistDiscographyHeader').style.display = 'block';
 
     try {
+        // Подтягиваем альбомы из обоих магазинов
         const [resultsRu, resultsUs] = await Promise.all([
             fetchItunes(`https://itunes.apple.com/lookup?id=${artistId}&entity=album&limit=200&country=ru`, controller.signal),
             fetchItunes(`https://itunes.apple.com/lookup?id=${artistId}&entity=album&limit=200&country=us`, controller.signal)
@@ -204,20 +249,19 @@ async function loadArtistDiscography(artistId, artistName) {
         
         document.getElementById('searchLoader').style.display = 'none';
         
-        // Отфильтровываем только альбомы (т.к. поиск по ID возвращает и самого артиста)
+        // Отфильтровываем альбомы
         const albumsRu = resultsRu.filter(item => item.wrapperType === 'collection');
         const albumsUs = resultsUs.filter(item => item.wrapperType === 'collection');
         const combined = [...albumsRu, ...albumsUs];
         
-        // Убираем дубликаты альбомов
         const uniqueAlbums = Array.from(new Map(combined.map(a => [a.collectionId, a])).values());
 
         if (uniqueAlbums.length === 0) {
-            resDiv.innerHTML = '<p style="grid-column: 1/4; opacity: 0.5;">Коллекции не найдены</p>';
+            resDiv.innerHTML = '<p style="grid-column: 1 / -1; opacity: 0.5;">Коллекции не найдены</p>';
             return;
         }
 
-        // Сортируем альбомы по дате релиза (свежие сверху)
+        // Сортировка: новые релизы сверху
         uniqueAlbums.sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate));
 
         uniqueAlbums.forEach(a => {
