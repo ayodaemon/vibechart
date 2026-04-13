@@ -10,13 +10,13 @@
         })(window, document,'script','https://mc.yandex.ru/metrika/tag.js?id=108511302', 'ym');
 
         ym(108511302, 'init', {
-            ssr:true, 
-            webvisor:true, 
-            clickmap:true, 
-            ecommerce:"dataLayer", 
-            referrer: document.referrer, 
-            url: location.href, 
-            accurateTrackBounce:true, 
+            ssr:true,
+            webvisor:true,
+            clickmap:true,
+            ecommerce:"dataLayer",
+            referrer: document.referrer,
+            url: location.href,
+            accurateTrackBounce:true,
             trackLinks:true
         });
     </script>
@@ -41,15 +41,19 @@
                 </label>
                 <span class="lang-label">EN</span>
             </div>
-            
-            <button class="save-btn" id="saveBtn" onclick="saveChart()">Download PNG</button>
-            <button class="clear-btn" id="clearBtn" onclick="clearData()">Clear all</button>
+
+            <button class="save-btn" id="saveBtn" type="button">Download PNG</button>
+            <button class="clear-btn" id="clearBtn" type="button" onclick="clearData()">Clear all</button>
         </div>
         <div class="mobile-hint" id="mobileHint"></div>
     </header>
 
     <div id="capture-area">
         <div class="grid" id="chartGrid"></div>
+    </div>
+
+    <div class="mobile-bottom-actions" id="mobileBottomActions">
+        <button class="save-btn mobile-save-btn" id="mobileSaveBtn" type="button">Download PNG</button>
     </div>
 
     <footer id="desktopFooter">
@@ -61,7 +65,9 @@
         </div>
     </footer>
 
-    <div id="modal" class="modal">
+    <button class="scroll-top-btn" id="scrollTopBtn" type="button" aria-label="Scroll to top">↑</button>
+
+    <div id="modal" class="modal" aria-hidden="true">
         <div class="modal-content">
             <div class="modal-title-wrap">
                 <div class="modal-title-row">
@@ -81,7 +87,25 @@
                 <div id="searchLoader" class="loader"></div>
             </div>
             <div id="results"></div>
-            <button class="close-btn" id="closeBtn" onclick="closeModal()">Close</button>
+            <button class="close-btn" id="closeBtn" type="button" onclick="closeModal()">Close</button>
+        </div>
+    </div>
+    <div id="exportModal" class="modal export-modal" aria-hidden="true">
+        <div class="modal-content export-modal-content">
+            <h3 id="exportModalTitle"></h3>
+            <div class="export-toggle-list">
+                <label class="export-toggle-row">
+                    <span id="exportAlbumToggleLabel"></span>
+                    <span class="switch compact-switch">
+                        <input type="checkbox" id="exportAlbumToggle">
+                        <span class="slider"></span>
+                    </span>
+                </label>
+            </div>
+            <div class="export-actions">
+                <button class="save-btn" id="confirmExportBtn" type="button"></button>
+                <button class="close-btn export-cancel-btn" id="closeExportBtn" type="button">Close</button>
+            </div>
         </div>
     </div>
 
