@@ -63,8 +63,8 @@ const ui = {
         cancelTitle: "Cancel",
         renamePlaceholder: "Type a custom cell title",
         hints: {
-            desktop: "Desktop: right-click a cell to remove it",
-            mobile: "Mobile: press and hold a cell to remove it"
+            desktop: "Right-click a cell to remove it",
+            mobile: "Press and hold a cell to remove it"
         },
         releaseTypes: {
             album: "Album",
