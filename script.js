@@ -595,33 +595,44 @@ function createJsonpRequest(url, signal, callbackParam = 'callback') {
     });
 }
 
+// Изменено: iTunes теперь использует JSONP для обхода CORS в Safari на мобилках
 async function fetchItunes(path, signal) {
     const url = path.startsWith('http') ? path : `${ITUNES_BASE_URL}${path}`;
-    const response = await fetch(url, {
-        method: 'GET',
-        mode: 'cors',
-        credentials: 'omit',
-        cache: 'no-store',
-        signal
-    });
-    if (!response.ok) throw new Error(`iTunes API error (${response.status})`);
-    return response.json();
+    const response = await createJsonpRequest(url, signal, 'callback');
+    if (response?.error) {
+        throw new Error(response.error.message || 'iTunes API error');
+    }
+    return response;
 }
 
+// Изменено: добавлен таймаут на 2.5 секунды, чтобы MusicBrainz не вешал поиск
 async function fetchMusicBrainz(path, signal) {
     const url = path.startsWith('http') ? path : `${MUSICBRAINZ_BASE_URL}${path}`;
-    const response = await fetch(url, {
-        method: 'GET',
-        mode: 'cors',
-        credentials: 'omit',
-        cache: 'no-store',
-        headers: {
-            'Accept': 'application/json'
-        },
-        signal
-    });
-    if (!response.ok) throw new Error(`MusicBrainz API error (${response.status})`);
-    return response.json();
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2500); 
+    
+    if (signal) {
+        signal.addEventListener('abort', () => controller.abort(), { once: true });
+        if (signal.aborted) controller.abort();
+    }
+
+    try {
+        const response = await fetch(url, {
+            method: 'GET',
+            mode: 'cors',
+            credentials: 'omit',
+            cache: 'no-store',
+            headers: {
+                'Accept': 'application/json'
+            },
+            signal: controller.signal
+        });
+        if (!response.ok) throw new Error(`MusicBrainz API error (${response.status})`);
+        return await response.json();
+    } finally {
+        clearTimeout(timeoutId);
+    }
 }
 
 function normalizeReleaseType(recordType, title = '') {
@@ -653,10 +664,10 @@ function normalizeItunesReleaseType(collectionType, kind = '', trackCount = 0, t
     const type = String(collectionType || kind || '').toLowerCase();
     const normalizedTitle = normalizeText(title);
 
-    if (type.includes('ep') || /ep/.test(normalizedTitle)) return 'ep';
+    if (type.includes('ep') || / ep /.test(normalizedTitle)) return 'ep';
     if (type.includes('single') || trackCount === 1) return 'single';
     if (type.includes('album')) return 'album';
-    if (/single/.test(normalizedTitle)) return 'single';
+    if (/ single /.test(normalizedTitle)) return 'single';
     return 'album';
 }
 
@@ -891,26 +902,32 @@ async function searchReleases(query) {
     }
 }
 
+// Изменено: обернуто в try-catch, чтобы если iTunes упал, он не выбрасывал красную ошибку, а шел дальше
 async function resolveArtistMode(query, signal) {
     if (looksLikeStructuredQuery(query)) return null;
 
-    const encodedQuery = encodeURIComponent(query);
-    const response = await fetchItunes(`/search?term=${encodedQuery}&entity=musicArtist&media=music&attribute=artistTerm&limit=8`, signal);
-    const artists = Array.isArray(response?.results) ? response.results : [];
-    if (artists.length === 0) return null;
+    try {
+        const encodedQuery = encodeURIComponent(query);
+        const response = await fetchItunes(`/search?term=${encodedQuery}&entity=musicArtist&media=music&attribute=artistTerm&limit=8`, signal);
+        const artists = Array.isArray(response?.results) ? response.results : [];
+        if (artists.length === 0) return null;
 
-    const best = artists
-        .map((artist) => ({
-            artist,
-            score: scoreArtistCandidate(query, artist.artistName)
-        }))
-        .sort((a, b) => {
-            if (b.score !== a.score) return b.score - a.score;
-            return Number(Boolean(b.artist.artistLinkUrl)) - Number(Boolean(a.artist.artistLinkUrl));
-        })[0];
+        const best = artists
+            .map((artist) => ({
+                artist,
+                score: scoreArtistCandidate(query, artist.artistName)
+            }))
+            .sort((a, b) => {
+                if (b.score !== a.score) return b.score - a.score;
+                return Number(Boolean(b.artist.artistLinkUrl)) - Number(Boolean(a.artist.artistLinkUrl));
+            })[0];
 
-    if (!best) return null;
-    return best.score >= 700 ? best.artist : null;
+        if (!best) return null;
+        return best.score >= 700 ? best.artist : null;
+    } catch (err) {
+        console.warn('resolveArtistMode failed:', err);
+        return null;
+    }
 }
 
 async function loadArtistReleases(artist, signal) {
@@ -1365,7 +1382,6 @@ function loadImageForCanvas(src) {
 
 function wrapCanvasText(ctx, text, maxWidth, maxLines = 3) {
     const value = String(text || '').trim();
-    if (!value) return [];
 
     const fitWithEllipsis = (input) => {
         let trimmed = String(input || '').trim();
