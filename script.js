@@ -30,14 +30,23 @@ const ui = {
             album: "Альбом",
             single: "Сингл",
             ep: "EP",
-            collection: "Релиз"
+            collection: "Релиз",
+            artist: "Артист",
+            custom: "Свой"
         },
         cats: [
             "Любимый альбом", "Лучший сюжетный", "Любимая обложка", "Когда-нибудь послушаю", "Произвело влияние", "Помогает в трудные дни",
             "Тебе нравится / никто не любит", "Все любят / тебе не нравится", "Недооцененный", "Переоцененный", "Не мое, но...", "Лучшие инструменталы",
             "Лучший вокал", "Простой, но классный", "Лучший микстейп", "Любимое неизданное", "Большое разочарование", "Большой сюрприз",
             "Лучший саундтрек", "Самый необычный", "Любимая группа", "Любимый артист", "Лучший EP", "Самый депрессивный"
-        ]
+        ],
+        // Новые переводы для кастомной панели и артистов
+        uploadPhoto: "📸 Загрузить фото из галереи",
+        customTitle: "Название (для текста)",
+        customArtist: "Артист (для текста)",
+        saveText: "Добавить текст",
+        searchArtistPlaceholder: "Поиск артиста...",
+        orSearch: "Или ищите в базе..."
     },
     en: {
         placeholder: "Artist, album, single, EP, or track...",
@@ -70,14 +79,22 @@ const ui = {
             album: "Album",
             single: "Single",
             ep: "EP",
-            collection: "Release"
+            collection: "Release",
+            artist: "Artist",
+            custom: "Custom"
         },
         cats: [
             "Favorite Album", "Best Concept", "Favorite Cover", "Will Listen Someday", "Personal Influence", "Helps in Hard Times",
             "I Like / Others Don't", "Others Like / I Don't", "Underrated", "Overrated", "Not My Thing, But...", "Best Instrumentals",
             "Best Vocals", "Simple But Cool", "Best Mixtape", "Favorite Unreleased", "Big Disappointment", "Big Surprise",
             "Best Soundtrack", "Most Unusual", "Favorite Band", "Favorite Artist", "Best EP", "Most Depressing"
-        ]
+        ],
+        uploadPhoto: "📸 Upload Photo from Gallery",
+        customTitle: "Title (for text)",
+        customArtist: "Artist (for text)",
+        saveText: "Add Text",
+        searchArtistPlaceholder: "Search artist...",
+        orSearch: "Or search database..."
     }
 };
 
@@ -94,6 +111,7 @@ const SEARCH_DEBOUNCE_MS = 350;
 const LONG_PRESS_MS = 800;
 const ITUNES_BASE_URL = 'https://itunes.apple.com';
 const MUSICBRAINZ_BASE_URL = 'https://musicbrainz.org/ws/2';
+const DEEZER_BASE_URL = 'https://api.deezer.com';
 const RESULTS_LIMIT = 48;
 const ARTIST_ALBUM_LIMIT = 100;
 
@@ -181,6 +199,49 @@ function init() {
     dom.confirmExportBtn = document.getElementById('confirmExportBtn');
     dom.closeExportBtn = document.getElementById('closeExportBtn');
 
+    // --- Инъекция кастомной панели для Неизданного ---
+    dom.customEntryPanel = document.createElement('div');
+    dom.customEntryPanel.className = 'custom-entry-panel';
+    
+    dom.customImageInput = document.createElement('input');
+    dom.customImageInput.type = 'file';
+    dom.customImageInput.accept = 'image/*';
+    dom.customImageInput.style.display = 'none';
+
+    dom.uploadImageBtn = document.createElement('button');
+    dom.uploadImageBtn.className = 'save-btn custom-upload-btn';
+    dom.uploadImageBtn.type = 'button';
+    dom.uploadImageBtn.addEventListener('click', () => dom.customImageInput.click());
+    dom.customImageInput.addEventListener('change', handleCustomImageUpload);
+
+    const textRow = document.createElement('div');
+    textRow.className = 'custom-text-row';
+
+    dom.customTitleInput = document.createElement('input');
+    dom.customTitleInput.type = 'text';
+    dom.customTitleInput.className = 'custom-input';
+
+    dom.customArtistInput = document.createElement('input');
+    dom.customArtistInput.type = 'text';
+    dom.customArtistInput.className = 'custom-input';
+
+    dom.saveCustomTextBtn = document.createElement('button');
+    dom.saveCustomTextBtn.className = 'save-btn custom-save-text-btn';
+    dom.saveCustomTextBtn.type = 'button';
+    dom.saveCustomTextBtn.addEventListener('click', handleCustomTextSave);
+
+    textRow.appendChild(dom.customTitleInput);
+    textRow.appendChild(dom.customArtistInput);
+    textRow.appendChild(dom.saveCustomTextBtn);
+
+    dom.customEntryPanel.appendChild(dom.customImageInput);
+    dom.customEntryPanel.appendChild(dom.uploadImageBtn);
+    dom.customEntryPanel.appendChild(textRow);
+
+    const searchWrapper = document.querySelector('.search-wrapper');
+    searchWrapper.parentNode.insertBefore(dom.customEntryPanel, searchWrapper);
+    // ---------------------------------------------------
+
     dom.langToggle.checked = currentLang === 'en';
     dom.langToggle.addEventListener('change', handleLanguageChange);
     dom.albumInput.addEventListener('input', handleSearchInput);
@@ -223,7 +284,7 @@ function init() {
 
 function updateUI() {
     const s = ui[currentLang];
-    dom.albumInput.placeholder = s.placeholder;
+    
     dom.closeBtn.textContent = s.closeBtn;
     dom.saveBtn.textContent = s.saveBtn;
     if (dom.mobileSaveBtn) dom.mobileSaveBtn.textContent = s.saveBtn;
@@ -237,10 +298,25 @@ function updateUI() {
     dom.confirmExportBtn.textContent = s.saveBtn;
     dom.closeExportBtn.textContent = s.closeBtn;
 
+    // Custom panel texts
+    dom.uploadImageBtn.textContent = s.uploadPhoto;
+    dom.customTitleInput.placeholder = s.customTitle;
+    dom.customArtistInput.placeholder = s.customArtist;
+    dom.saveCustomTextBtn.textContent = s.saveText;
+
     if (activeIndex !== null && dom.modal.classList.contains('is-open')) {
         dom.modalTitle.textContent = getCellLabel(activeIndex);
         if (titleEditing) {
             dom.titleEditInput.value = customLabels[activeIndex] || '';
+        }
+        
+        // Меняем плейсхолдер поиска в зависимости от типа ячейки
+        if (activeIndex === 20 || activeIndex === 21) {
+            dom.albumInput.placeholder = s.searchArtistPlaceholder;
+        } else if (activeIndex === 15) {
+            dom.albumInput.placeholder = s.orSearch;
+        } else {
+            dom.albumInput.placeholder = s.placeholder;
         }
     }
 
@@ -248,6 +324,39 @@ function updateUI() {
     dom.desktopHint.textContent = s.hints.desktop;
     dom.mobileHint.hidden = !s.hints.mobile;
     dom.desktopHint.hidden = !s.hints.desktop;
+}
+
+function handleCustomImageUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const title = dom.customTitleInput.value.trim() || 'Unreleased';
+    const artist = dom.customArtistInput.value.trim() || '';
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        selectCollection({
+            artworkUrl: e.target.result, // DataURL
+            title: title,
+            artistName: artist,
+            releaseType: 'custom'
+        }, null);
+    };
+    reader.readAsDataURL(file);
+    event.target.value = ''; // Сброс инпута
+}
+
+function handleCustomTextSave() {
+    const title = dom.customTitleInput.value.trim();
+    const artist = dom.customArtistInput.value.trim();
+    if (!title && !artist) return;
+
+    selectCollection({
+        artworkUrl: '', // Пустая строка заставит скрипт сгенерировать заглушку-текст
+        title: title || ui[currentLang].unknownTitle,
+        artistName: artist || '',
+        releaseType: 'custom'
+    }, null);
 }
 
 function syncExportToggleState() {}
@@ -294,7 +403,12 @@ function handleSearchInput(event) {
 
     setLoading(true);
     searchTimeout = setTimeout(() => {
-        searchReleases(query);
+        // Если это ячейки "Любимая группа" (20) или "Любимый артист" (21)
+        if (activeIndex === 20 || activeIndex === 21) {
+            searchArtistsOnly(query);
+        } else {
+            searchReleases(query);
+        }
     }, SEARCH_DEBOUNCE_MS);
 }
 
@@ -595,7 +709,6 @@ function createJsonpRequest(url, signal, callbackParam = 'callback') {
     });
 }
 
-// Изменено: iTunes теперь использует JSONP для обхода CORS в Safari на мобилках
 async function fetchItunes(path, signal) {
     const url = path.startsWith('http') ? path : `${ITUNES_BASE_URL}${path}`;
     const response = await createJsonpRequest(url, signal, 'callback');
@@ -605,7 +718,15 @@ async function fetchItunes(path, signal) {
     return response;
 }
 
-// Изменено: добавлен таймаут на 2.5 секунды, чтобы MusicBrainz не вешал поиск
+async function fetchDeezerJSONP(path, signal) {
+    const url = path.startsWith('http') ? path : `${DEEZER_BASE_URL}${path}`;
+    const response = await createJsonpRequest(url, signal, 'callback');
+    if (response?.error) {
+        throw new Error(response.error.message || 'Deezer API error');
+    }
+    return response;
+}
+
 async function fetchMusicBrainz(path, signal) {
     const url = path.startsWith('http') ? path : `${MUSICBRAINZ_BASE_URL}${path}`;
     
@@ -860,6 +981,36 @@ function scoreReleaseAgainstQuery(collection, query) {
     return score;
 }
 
+async function searchArtistsOnly(query) {
+    const { signal, token } = beginSearchRequest();
+
+    try {
+        const response = await fetchDeezerJSONP(`/search/artist?q=${encodeURIComponent(query)}&limit=24`, signal);
+        if (signal.aborted || token !== lastSearchToken) return;
+
+        const artists = Array.isArray(response?.data) ? response.data : [];
+        const collections = artists.map((artist) => ({
+            id: `deezer-artist-${artist.id}`,
+            source: 'deezer-artist',
+            artistId: artist.id,
+            artistName: '',
+            title: artist.name, // Имя артиста кладем в title для отрисовки
+            artworkUrl: artist.picture_xl || artist.picture_big || artist.picture_medium || '',
+            releaseDate: '',
+            releaseType: 'artist',
+            rank: artist.nb_fan || 0
+        })).filter(item => item.artworkUrl);
+
+        renderCollectionResults(collections);
+    } catch (error) {
+        if (error.name === 'AbortError') return;
+        console.error(error);
+        renderStatusMessage(ui[currentLang].searchError, 'error');
+    } finally {
+        if (!signal.aborted && token === lastSearchToken) setLoading(false);
+    }
+}
+
 async function searchReleases(query) {
     const { signal, token } = beginSearchRequest();
 
@@ -902,7 +1053,6 @@ async function searchReleases(query) {
     }
 }
 
-// Изменено: обернуто в try-catch, чтобы если iTunes упал, он не выбрасывал красную ошибку, а шел дальше
 async function resolveArtistMode(query, signal) {
     if (looksLikeStructuredQuery(query)) return null;
 
@@ -1028,6 +1178,11 @@ function createCollectionCard(collection) {
     image.loading = 'lazy';
     image.crossOrigin = 'anonymous';
     image.referrerPolicy = 'no-referrer';
+    // Для круглых аватарок артистов
+    if (collection.releaseType === 'artist') {
+        image.style.borderRadius = '50%';
+        image.style.objectFit = 'cover';
+    }
     image.addEventListener('error', () => {
         image.src = createFallbackCoverDataUrl(collection.title, collection.artistName);
     }, { once: true });
@@ -1150,6 +1305,8 @@ async function fetchImageAsDataURL(url) {
 
 async function toPersistentImage(url, title, artist) {
     if (!url) return createFallbackCoverDataUrl(title, artist);
+    // Мгновенный выход, если мы уже передали DataURL (при загрузке своего фото)
+    if (url.startsWith('data:') || url.startsWith('blob:')) return url;
 
     for (const candidate of getImageProxyCandidates(url)) {
         try {
@@ -1203,6 +1360,18 @@ function openModal(index) {
     selectingInProgress = false;
     setLoading(false);
     setTitleEditMode(false);
+    
+    // Показываем кастомную панель только для "Любимое неизданное" (индекс 15)
+    if (index === 15) {
+        dom.customEntryPanel.style.display = 'flex';
+        dom.customTitleInput.value = '';
+        dom.customArtistInput.value = '';
+    } else {
+        dom.customEntryPanel.style.display = 'none';
+    }
+
+    updateUI(); // Обновит плейсхолдеры поиска
+
     requestAnimationFrame(() => {
         dom.modal.classList.add('is-open');
         dom.albumInput.focus();
