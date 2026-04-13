@@ -63,8 +63,8 @@ const ui = {
         cancelTitle: "Cancel",
         renamePlaceholder: "Type a custom cell title",
         hints: {
-            desktop: "Right-click a cell to remove it",
-            mobile: "Press and hold a cell to remove it"
+            desktop: "Desktop: right-click a cell to remove it",
+            mobile: "Mobile: press and hold a cell to remove it"
         },
         releaseTypes: {
             album: "Album",
@@ -92,7 +92,8 @@ const STORAGE_KEYS = {
 const CELL_COUNT = 24;
 const SEARCH_DEBOUNCE_MS = 350;
 const LONG_PRESS_MS = 800;
-const DEEZER_BASE_URL = 'https://api.deezer.com';
+const ITUNES_BASE_URL = 'https://itunes.apple.com';
+const MUSICBRAINZ_BASE_URL = 'https://musicbrainz.org/ws/2';
 const RESULTS_LIMIT = 48;
 const ARTIST_ALBUM_LIMIT = 100;
 
@@ -594,13 +595,33 @@ function createJsonpRequest(url, signal, callbackParam = 'callback') {
     });
 }
 
-async function fetchDeezer(path, signal) {
-    const url = path.startsWith('http') ? path : `${DEEZER_BASE_URL}${path}`;
-    const response = await createJsonpRequest(url, signal);
-    if (response?.error) {
-        throw new Error(response.error.message || 'Deezer API error');
-    }
-    return response;
+async function fetchItunes(path, signal) {
+    const url = path.startsWith('http') ? path : `${ITUNES_BASE_URL}${path}`;
+    const response = await fetch(url, {
+        method: 'GET',
+        mode: 'cors',
+        credentials: 'omit',
+        cache: 'no-store',
+        signal
+    });
+    if (!response.ok) throw new Error(`iTunes API error (${response.status})`);
+    return response.json();
+}
+
+async function fetchMusicBrainz(path, signal) {
+    const url = path.startsWith('http') ? path : `${MUSICBRAINZ_BASE_URL}${path}`;
+    const response = await fetch(url, {
+        method: 'GET',
+        mode: 'cors',
+        credentials: 'omit',
+        cache: 'no-store',
+        headers: {
+            'Accept': 'application/json'
+        },
+        signal
+    });
+    if (!response.ok) throw new Error(`MusicBrainz API error (${response.status})`);
+    return response.json();
 }
 
 function normalizeReleaseType(recordType, title = '') {
@@ -621,52 +642,75 @@ function releasePriority(type) {
     return 0;
 }
 
-function getDeezerArtwork(item) {
-    return item.cover_xl || item.cover_big || item.cover_medium || item.cover || item.md5_image || '';
+function upscaleItunesArtwork(url = '') {
+    if (!url) return '';
+    return String(url)
+        .replace(/\/(\d+x\d+)(bb|cc)?\./i, '/600x600bb.')
+        .replace(/\/source\/\d+x\d+bb\./i, '/source/600x600bb.');
 }
 
-function getArtistNameFromItem(item) {
-    return item?.artist?.name
-        || item?.contributors?.find((person) => person?.name)?.name
-        || item?.album?.artist?.name
-        || item?.album?.contributors?.find((person) => person?.name)?.name
-        || item?.album?.creator?.name
-        || item?.creator?.name
-        || '';
+function normalizeItunesReleaseType(collectionType, kind = '', trackCount = 0, title = '') {
+    const type = String(collectionType || kind || '').toLowerCase();
+    const normalizedTitle = normalizeText(title);
+
+    if (type.includes('ep') || /ep/.test(normalizedTitle)) return 'ep';
+    if (type.includes('single') || trackCount === 1) return 'single';
+    if (type.includes('album')) return 'album';
+    if (/single/.test(normalizedTitle)) return 'single';
+    return 'album';
 }
 
-function getArtistIdFromItem(item) {
-    return item?.artist?.id || item?.contributors?.[0]?.id || item?.album?.artist?.id || null;
-}
-
-function normalizeDeezerAlbum(item) {
+function normalizeItunesAlbum(item) {
     return {
-        id: `deezer-album-${item.id}`,
-        source: 'deezer',
-        artistId: getArtistIdFromItem(item),
-        artistName: getArtistNameFromItem(item),
-        title: item.title || ui[currentLang].unknownTitle,
-        artworkUrl: getDeezerArtwork(item),
-        releaseDate: item.release_date || '',
-        releaseType: normalizeReleaseType(item.record_type, item.title),
-        rank: item.rank || item.fans || 0,
-        sortKey: `deezer-${item.id}`
+        id: `itunes-album-${item.collectionId || item.trackId || item.artistId || item.collectionName || item.artistName}`,
+        source: 'itunes',
+        artistId: item.artistId || null,
+        artistName: item.artistName || '',
+        title: item.collectionName || item.trackName || ui[currentLang].unknownTitle,
+        artworkUrl: upscaleItunesArtwork(item.artworkUrl100 || item.artworkUrl60 || item.artworkUrl30 || ''),
+        releaseDate: item.releaseDate || '',
+        releaseType: normalizeItunesReleaseType(item.collectionType, item.kind, item.trackCount, item.collectionName || item.trackName),
+        rank: Number(item.trackCount || 0) + Number(item.collectionPrice || 0),
+        sortKey: `itunes-${item.collectionId || item.trackId || item.artistId || item.collectionName || item.artistName}`
     };
 }
 
-function normalizeDeezerTrack(item) {
-    const album = item.album || {};
+function normalizeItunesTrack(item) {
     return {
-        id: `deezer-album-${album.id || item.id}`,
-        source: 'deezer-track',
-        artistId: getArtistIdFromItem(item),
-        artistName: getArtistNameFromItem(item),
-        title: album.title || item.title || ui[currentLang].unknownTitle,
-        artworkUrl: getDeezerArtwork(album),
-        releaseDate: album.release_date || item.release_date || '',
-        releaseType: normalizeReleaseType(album.record_type || item.record_type, album.title || item.title),
-        rank: item.rank || 0,
-        sortKey: `deezer-track-${album.id || item.id}`
+        id: `itunes-track-${item.collectionId || item.trackId}`,
+        source: 'itunes-track',
+        artistId: item.artistId || null,
+        artistName: item.artistName || '',
+        title: item.collectionName || item.trackName || ui[currentLang].unknownTitle,
+        artworkUrl: upscaleItunesArtwork(item.artworkUrl100 || item.artworkUrl60 || item.artworkUrl30 || ''),
+        releaseDate: item.releaseDate || '',
+        releaseType: normalizeItunesReleaseType(item.collectionType, item.kind, item.trackCount, item.collectionName || item.trackName),
+        rank: Number(item.trackNumber || 0) + Number(item.discCount || 0),
+        sortKey: `itunes-track-${item.collectionId || item.trackId}`
+    };
+}
+
+function normalizeMusicBrainzRelease(item, fallbackArtistName = '') {
+    const artistCredit = Array.isArray(item['artist-credit'])
+        ? item['artist-credit'].map((entry) => entry?.name || entry?.artist?.name || '').filter(Boolean).join(', ')
+        : '';
+    const title = item.title || ui[currentLang].unknownTitle;
+    const primaryType = String(item['primary-type'] || '').toLowerCase();
+    const secondaryTypes = Array.isArray(item['secondary-types']) ? item['secondary-types'].join(' ').toLowerCase() : '';
+    const releaseType = normalizeReleaseType(`${primaryType} ${secondaryTypes}`, title);
+    const artworkUrl = item.id ? `https://coverartarchive.org/release-group/${item.id}/front-500` : '';
+
+    return {
+        id: `mb-release-group-${item.id || title}`,
+        source: 'musicbrainz',
+        artistId: item['artist-credit']?.[0]?.artist?.id || null,
+        artistName: artistCredit || fallbackArtistName || '',
+        title,
+        artworkUrl,
+        releaseDate: item['first-release-date'] || '',
+        releaseType,
+        rank: Number(item['release-count'] || 0),
+        sortKey: `mb-${item.id || title}`
     };
 }
 
@@ -850,18 +894,19 @@ async function searchReleases(query) {
 async function resolveArtistMode(query, signal) {
     if (looksLikeStructuredQuery(query)) return null;
 
-    const response = await fetchDeezer(`/search/artist?q=${encodeURIComponent(query)}&limit=5&strict=on`, signal);
-    const artists = Array.isArray(response?.data) ? response.data : [];
+    const encodedQuery = encodeURIComponent(query);
+    const response = await fetchItunes(`/search?term=${encodedQuery}&entity=musicArtist&media=music&attribute=artistTerm&limit=8`, signal);
+    const artists = Array.isArray(response?.results) ? response.results : [];
     if (artists.length === 0) return null;
 
     const best = artists
         .map((artist) => ({
             artist,
-            score: scoreArtistCandidate(query, artist.name)
+            score: scoreArtistCandidate(query, artist.artistName)
         }))
         .sort((a, b) => {
             if (b.score !== a.score) return b.score - a.score;
-            return (b.artist.nb_fan || 0) - (a.artist.nb_fan || 0);
+            return Number(Boolean(b.artist.artistLinkUrl)) - Number(Boolean(a.artist.artistLinkUrl));
         })[0];
 
     if (!best) return null;
@@ -869,25 +914,63 @@ async function resolveArtistMode(query, signal) {
 }
 
 async function loadArtistReleases(artist, signal) {
-    const response = await fetchDeezer(`/artist/${artist.id}/albums?limit=${ARTIST_ALBUM_LIMIT}&index=0`, signal);
-    const data = Array.isArray(response?.data) ? response.data : [];
-    return data
-        .map(normalizeDeezerAlbum)
-        .map((item) => fillMissingArtistName(item, artist?.name))
+    const artistId = artist?.artistId || artist?.artistLinkUrl?.match(/id(\d+)/)?.[1];
+    const artistName = artist?.artistName || artist?.name || '';
+    const requests = [];
+
+    if (artistId) {
+        requests.push(
+            fetchItunes(`/lookup?id=${encodeURIComponent(String(artistId))}&entity=album&limit=200&sort=recent`, signal)
+                .then((response) => Array.isArray(response?.results) ? response.results.slice(1).map(normalizeItunesAlbum) : [])
+                .catch(() => [])
+        );
+    }
+
+    if (artistName) {
+        const encodedName = encodeURIComponent(artistName);
+        requests.push(
+            fetchItunes(`/search?term=${encodedName}&entity=album&media=music&attribute=artistTerm&limit=${RESULTS_LIMIT}`, signal)
+                .then((response) => Array.isArray(response?.results) ? response.results.map(normalizeItunesAlbum) : [])
+                .catch(() => [])
+        );
+        requests.push(loadMusicBrainzArtistReleases(artistName, signal).catch(() => []));
+    }
+
+    const results = (await Promise.all(requests)).flat();
+    return results
+        .map((item) => fillMissingArtistName(item, artistName))
         .filter((item) => item.artworkUrl);
+}
+
+async function loadMusicBrainzArtistReleases(artistName, signal) {
+    const encoded = encodeURIComponent(`artist:${artistName}`);
+    const artistResponse = await fetchMusicBrainz(`/artist?query=${encoded}&fmt=json&limit=5`, signal);
+    const artists = Array.isArray(artistResponse?.artists) ? artistResponse.artists : [];
+    if (!artists.length) return [];
+
+    const bestArtist = artists
+        .map((artist) => ({ artist, score: scoreArtistCandidate(artistName, artist.name) }))
+        .sort((a, b) => b.score - a.score)[0]?.artist;
+    if (!bestArtist?.id) return [];
+
+    const releaseResponse = await fetchMusicBrainz(`/release-group?artist=${encodeURIComponent(bestArtist.id)}&type=album|ep|single&fmt=json&limit=100`, signal);
+    const groups = Array.isArray(releaseResponse?.['release-groups']) ? releaseResponse['release-groups'] : [];
+    return groups.map((item) => normalizeMusicBrainzRelease(item, artistName));
 }
 
 async function loadSearchCollections(query, signal) {
     const encodedQuery = encodeURIComponent(query);
-    const [albumsResponse, tracksResponse] = await Promise.all([
-        fetchDeezer(`/search/album?q=${encodedQuery}&limit=${RESULTS_LIMIT}&order=RATING_DESC`, signal),
-        fetchDeezer(`/search/track?q=${encodedQuery}&limit=${RESULTS_LIMIT}&order=RATING_DESC`, signal)
+    const [albumsResponse, tracksResponse, mbResponse] = await Promise.all([
+        fetchItunes(`/search?term=${encodedQuery}&entity=album&media=music&limit=${RESULTS_LIMIT}`, signal).catch(() => ({ results: [] })),
+        fetchItunes(`/search?term=${encodedQuery}&entity=song&media=music&limit=${RESULTS_LIMIT}`, signal).catch(() => ({ results: [] })),
+        fetchMusicBrainz(`/release-group?query=${encodeURIComponent(query)}&fmt=json&limit=30`, signal).catch(() => ({ 'release-groups': [] }))
     ]);
 
-    const albums = Array.isArray(albumsResponse?.data) ? albumsResponse.data.map(normalizeDeezerAlbum) : [];
-    const tracks = Array.isArray(tracksResponse?.data) ? tracksResponse.data.map(normalizeDeezerTrack) : [];
+    const albums = Array.isArray(albumsResponse?.results) ? albumsResponse.results.map(normalizeItunesAlbum) : [];
+    const tracks = Array.isArray(tracksResponse?.results) ? tracksResponse.results.map(normalizeItunesTrack) : [];
+    const musicBrainz = Array.isArray(mbResponse?.['release-groups']) ? mbResponse['release-groups'].map((item) => normalizeMusicBrainzRelease(item)) : [];
 
-    return [...albums, ...tracks].filter((item) => item.artworkUrl);
+    return [...albums, ...tracks, ...musicBrainz].filter((item) => item.artworkUrl || item.source === 'musicbrainz');
 }
 
 function sortArtistCollections(items) {
