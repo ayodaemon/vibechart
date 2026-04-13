@@ -2,7 +2,7 @@ const ui = {
     ru: {
         placeholder: "Артист, альбом, сингл, EP или трек...",
         closeBtn: "Закрыть",
-        saveBtn: "Скачать PNG",
+        saveBtn: "Скачать JPG",
         clearBtn: "Очистить всё",
         confirm: "Сбросить чарт и вернуть все ячейки?",
         hideCellConfirm: "Скрыть эту ячейку?",
@@ -11,8 +11,8 @@ const ui = {
         selecting: "Сохраняем обложку…",
         noResults: "Ничего не найдено",
         searchError: "Не удалось выполнить поиск. Проверьте интернет и попробуйте снова.",
-        exportError: "Не удалось сохранить PNG. Некоторые обложки могли не загрузиться полностью.",
-        exportMenuTitle: "Параметры PNG",
+        exportError: "Не удалось сохранить JPG. Некоторые обложки могли не загрузиться полностью.",
+        exportMenuTitle: "Параметры JPG",
         exportAlbumToggle: "Добавить название альбома / сингла / EP",
         exportPromoText: "Сделай свою таблицу",
         exportPromoUrl: "ayodaemon.github.io/vibechart",
@@ -23,8 +23,8 @@ const ui = {
         cancelTitle: "Отмена",
         renamePlaceholder: "Введите свое название ячейки",
         hints: {
-            desktop: "ПК: правый клик по ячейке, чтобы удалить её",
-            mobile: "Телефон: удерживайте ячейку, чтобы удалить её"
+            desktop: "правый клик по ячейке, чтобы удалить её",
+            mobile: "удерживайте ячейку, чтобы удалить её"
         },
         releaseTypes: {
             album: "Альбом",
@@ -42,7 +42,7 @@ const ui = {
     en: {
         placeholder: "Artist, album, single, EP, or track...",
         closeBtn: "Close",
-        saveBtn: "Download PNG",
+        saveBtn: "Download JPG",
         clearBtn: "Clear all",
         confirm: "Reset everything and restore all cells?",
         hideCellConfirm: "Hide this cell?",
@@ -51,8 +51,8 @@ const ui = {
         selecting: "Saving cover…",
         noResults: "Nothing found",
         searchError: "Search failed. Check your connection and try again.",
-        exportError: "PNG export failed. Some covers may not have finished loading.",
-        exportMenuTitle: "PNG options",
+        exportError: "JPG export failed. Some covers may not have finished loading.",
+        exportMenuTitle: "JPG options",
         exportAlbumToggle: "Add album / single / EP title",
         exportPromoText: "Make your own chart",
         exportPromoUrl: "ayodaemon.github.io/vibechart",
@@ -63,8 +63,8 @@ const ui = {
         cancelTitle: "Cancel",
         renamePlaceholder: "Type a custom cell title",
         hints: {
-            desktop: "Desktop: right-click a cell to remove it",
-            mobile: "Mobile: press and hold a cell to remove it"
+            desktop: "right-click a cell to remove it",
+            mobile: "press and hold a cell to remove it"
         },
         releaseTypes: {
             album: "Album",
