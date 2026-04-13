@@ -23,11 +23,9 @@
     <noscript><div><img src="https://mc.yandex.ru/watch/108511302" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>VibeChart by @imaiv</title>
-    
+    <title>vibechart</title>
     <link rel="icon" type="image/png" href="favicon.png">
-
-    <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
@@ -44,8 +42,8 @@
                 <span class="lang-label">EN</span>
             </div>
             
-            <button class="save-btn" id="saveBtn" onclick="saveChart()"></button>
-            <button class="clear-btn" id="clearBtn" onclick="clearData()"></button>
+            <button class="save-btn" id="saveBtn" onclick="saveChart()">Download PNG</button>
+            <button class="clear-btn" id="clearBtn" onclick="clearData()">Clear all</button>
         </div>
         <div class="mobile-hint" id="mobileHint"></div>
     </header>
@@ -55,19 +53,35 @@
     </div>
 
     <footer id="desktopFooter">
-        by @imaiv • <span id="desktopHint"></span>
+        <div class="footer-brand">
+            <img src="logo.png" alt="Logo" class="footer-logo" onerror="this.style.display='none'">
+            <span class="footer-brand-text">by @imaiv</span>
+            <span class="footer-separator">•</span>
+            <span id="desktopHint"></span>
+        </div>
     </footer>
 
     <div id="modal" class="modal">
         <div class="modal-content">
-            <h3 id="modalTitle"></h3>
+            <div class="modal-title-wrap">
+                <div class="modal-title-row">
+                    <h3 id="modalTitle"></h3>
+                    <button type="button" class="title-edit-btn" id="titleEditBtn"></button>
+                </div>
+                <div class="title-edit-panel" id="titleEditPanel" hidden>
+                    <input type="text" id="titleEditInput" maxlength="80">
+                    <div class="title-edit-actions">
+                        <button type="button" class="title-action-btn title-save-btn" id="titleSaveBtn"></button>
+                        <button type="button" class="title-action-btn title-cancel-btn" id="titleCancelBtn"></button>
+                    </div>
+                </div>
+            </div>
             <div class="search-wrapper">
                 <input type="text" id="albumInput" autocomplete="off">
                 <div id="searchLoader" class="loader"></div>
             </div>
-            <h4 id="artistDiscographyHeader" class="discography-header html2canvas-ignore" style="display:none;"></h4>
             <div id="results"></div>
-            <button class="close-btn" id="closeBtn" onclick="closeModal()"></button>
+            <button class="close-btn" id="closeBtn" onclick="closeModal()">Close</button>
         </div>
     </div>
 
