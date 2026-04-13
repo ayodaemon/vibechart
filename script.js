@@ -19,8 +19,8 @@ const ui = {
         cancelTitle: "Отмена",
         renamePlaceholder: "Введите свое название ячейки",
         hints: {
-            desktop: "ПК: правый клик по ячейке, чтобы удалить её",
-            mobile: "Телефон: удерживайте ячейку, чтобы удалить её"
+            desktop: "правый клик по ячейке, чтобы удалить её",
+            mobile: "удерживайте ячейку, чтобы удалить её"
         },
         releaseTypes: {
             album: "Альбом",
@@ -55,8 +55,8 @@ const ui = {
         cancelTitle: "Cancel",
         renamePlaceholder: "Type a custom cell title",
         hints: {
-            desktop: "Desktop: right-click a cell to remove it",
-            mobile: "Mobile: press and hold a cell to remove it"
+            desktop: "right-click a cell to remove it",
+            mobile: "press and hold a cell to remove it"
         },
         releaseTypes: {
             album: "Album",
