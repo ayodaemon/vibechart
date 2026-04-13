@@ -617,25 +617,33 @@ function getDeezerArtwork(item) {
 }
 
 function getArtistNameFromItem(item) {
-    return item?.artist?.name
+    let name = item?.artist?.name
         || item?.contributors?.find((person) => person?.name)?.name
         || item?.album?.artist?.name
         || item?.album?.contributors?.find((person) => person?.name)?.name
         || item?.album?.creator?.name
-        || item?.creator?.name
-        || '';
+        || item?.creator?.name;
+    
+    if (!name && typeof item?.artist === 'string') name = item.artist;
+    
+    return name || '';
 }
 
 function getArtistIdFromItem(item) {
     return item?.artist?.id || item?.contributors?.[0]?.id || item?.album?.artist?.id || null;
 }
 
-function normalizeDeezerAlbum(item) {
+function normalizeDeezerAlbum(item, fallbackArtist = null) {
+    let artistName = getArtistNameFromItem(item);
+    if (!artistName && fallbackArtist && fallbackArtist.name) {
+        artistName = fallbackArtist.name;
+    }
+
     return {
         id: `deezer-album-${item.id}`,
         source: 'deezer',
-        artistId: getArtistIdFromItem(item),
-        artistName: getArtistNameFromItem(item),
+        artistId: getArtistIdFromItem(item) || fallbackArtist?.id || null,
+        artistName: artistName,
         title: item.title || ui[currentLang].unknownTitle,
         artworkUrl: getDeezerArtwork(item),
         releaseDate: item.release_date || '',
@@ -846,13 +854,7 @@ async function loadArtistReleases(artist, signal) {
     const response = await fetchDeezer(`/artist/${artist.id}/albums?limit=${ARTIST_ALBUM_LIMIT}&index=0`, signal);
     const data = Array.isArray(response?.data) ? response.data : [];
     
-    return data.map((item) => {
-        // Подкидываем артиста из контекста поиска, если API Deezer его не отдал внутри самого релиза
-        if (!item.artist) {
-            item.artist = artist;
-        }
-        return normalizeDeezerAlbum(item);
-    }).filter((item) => item.artworkUrl);
+    return data.map(item => normalizeDeezerAlbum(item, artist)).filter((item) => item.artworkUrl);
 }
 
 async function loadSearchCollections(query, signal) {
@@ -862,7 +864,7 @@ async function loadSearchCollections(query, signal) {
         fetchDeezer(`/search/track?q=${encodedQuery}&limit=${RESULTS_LIMIT}&order=RATING_DESC`, signal)
     ]);
 
-    const albums = Array.isArray(albumsResponse?.data) ? albumsResponse.data.map(normalizeDeezerAlbum) : [];
+    const albums = Array.isArray(albumsResponse?.data) ? albumsResponse.data.map(item => normalizeDeezerAlbum(item)) : [];
     const tracks = Array.isArray(tracksResponse?.data) ? tracksResponse.data.map(normalizeDeezerTrack) : [];
 
     return [...albums, ...tracks].filter((item) => item.artworkUrl);
