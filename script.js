@@ -6,6 +6,7 @@ const ui = {
         clearBtn: "Очистить всё",
         confirm: "Сбросить чарт и вернуть все ячейки?",
         tapText: "+ Выбрать",
+        albumTag: "АЛЬБОМ",
         notFound: "Ничего не найдено",
         networkError: "Ошибка сети. Попробуйте позже.",
         hints: {
@@ -26,6 +27,7 @@ const ui = {
         clearBtn: "Clear all",
         confirm: "Reset everything and restore cells?",
         tapText: "+ Tap to add",
+        albumTag: "ALBUM",
         notFound: "Nothing found",
         networkError: "Network error. Please try again.",
         hints: {
@@ -164,13 +166,12 @@ function removeCell(i) {
     }
 }
 
-// Надежный конструктор URL для API Apple
 async function fetchAlbums(query, country) {
     const url = new URL('https://itunes.apple.com/search');
     url.searchParams.append('term', query);
     url.searchParams.append('media', 'music');
     url.searchParams.append('entity', 'album');
-    url.searchParams.append('limit', '16'); // Берем 16 альбомов
+    url.searchParams.append('limit', '16');
     url.searchParams.append('country', country);
 
     const res = await fetch(url.toString(), { signal: controller.signal });
@@ -179,7 +180,6 @@ async function fetchAlbums(query, country) {
     return data.results || [];
 }
 
-// Хелпер вывода текста в модалку
 function showMessage(text, isError = false) {
     const resDiv = document.getElementById('results');
     resDiv.innerHTML = '';
@@ -189,7 +189,7 @@ function showMessage(text, isError = false) {
     resDiv.appendChild(msg);
 }
 
-// Упрощенный поиск - только обложки
+// Поиск и сборка новых карточек
 async function searchAlbums(q) {
     if (controller) controller.abort();
     controller = new AbortController();
@@ -203,7 +203,6 @@ async function searchAlbums(q) {
             catch (e) { if (e.name === 'AbortError') throw e; return []; }
         };
 
-        // Ищем в двух сторах для полноты
         const [ruAlbums, usAlbums] = await Promise.all([
             safeFetch('ru'), safeFetch('us')
         ]);
@@ -211,7 +210,6 @@ async function searchAlbums(q) {
         document.getElementById('searchLoader').style.display = 'none';
 
         const combinedAlbums = [...ruAlbums, ...usAlbums];
-        // Убираем дубликаты
         const uniqueAlbums = Array.from(new Map(combinedAlbums.map(a => [a.collectionId, a])).values());
 
         resDiv.innerHTML = '';
@@ -223,24 +221,50 @@ async function searchAlbums(q) {
 
         uniqueAlbums.forEach(a => {
             if (!a.artworkUrl100) return;
+            
+            // Контейнер карточки
             const colEl = document.createElement('div');
-            // ВАЖНО: Никаких классов невидимок!
             colEl.className = 'collection-result';
             
+            // Обложка
             const img = document.createElement('img');
             img.src = a.artworkUrl100.replace('100x100bb', '600x600bb');
             img.title = `${a.artistName} - ${a.collectionName}`;
             img.loading = "lazy";
             img.crossOrigin = "anonymous";
             
-            img.addEventListener('click', () => {
+            // Блок с информацией (название, артист, тег)
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'album-info';
+            
+            const titleSpan = document.createElement('div');
+            titleSpan.className = 'album-title';
+            titleSpan.textContent = a.collectionName;
+            
+            const artistSpan = document.createElement('div');
+            artistSpan.className = 'album-artist';
+            artistSpan.textContent = a.artistName;
+            
+            const tagSpan = document.createElement('div');
+            tagSpan.className = 'album-tag';
+            tagSpan.textContent = s.albumTag; // Берем из локализации
+
+            // Собираем матрешку
+            infoDiv.appendChild(titleSpan);
+            infoDiv.appendChild(artistSpan);
+            infoDiv.appendChild(tagSpan);
+            
+            colEl.appendChild(img);
+            colEl.appendChild(infoDiv);
+
+            // Клик по всей карточке применяет обложку
+            colEl.addEventListener('click', () => {
                 chartData[activeIndex] = img.src;
                 localStorage.setItem('chartData', JSON.stringify(chartData));
                 render();
                 closeModal();
             });
             
-            colEl.appendChild(img);
             resDiv.appendChild(colEl);
         });
 
@@ -260,7 +284,6 @@ function openModal(i) {
     document.getElementById('results').innerHTML = '';
     document.getElementById('searchLoader').style.display = 'none';
     
-    // Прячем старые заголовки дискографии, если они остались в HTML
     const discoHeader = document.getElementById('artistDiscographyHeader');
     if (discoHeader) discoHeader.style.display = 'none';
     
@@ -273,7 +296,6 @@ function closeModal() {
     activeIndex = null;
 }
 
-// Экспорт картинки
 async function saveChart() {
     const area = document.getElementById('capture-area');
     const gridEl = document.getElementById('chartGrid');
