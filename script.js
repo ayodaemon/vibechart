@@ -12,6 +12,10 @@ const ui = {
         noResults: "Ничего не найдено",
         searchError: "Не удалось выполнить поиск. Проверьте интернет и попробуйте снова.",
         exportError: "Не удалось сохранить PNG. Некоторые обложки могли не загрузиться полностью.",
+        exportMenuTitle: "Параметры PNG",
+        exportAlbumToggle: "Добавить название альбома / сингла / EP",
+        exportPromoText: "Сделай свою таблицу",
+        exportPromoUrl: "ayodaemon.github.io/vibechart",
         unknownArtist: "Неизвестный артист",
         unknownTitle: "Без названия",
         editTitle: "✎ Название ячейки",
@@ -19,8 +23,8 @@ const ui = {
         cancelTitle: "Отмена",
         renamePlaceholder: "Введите свое название ячейки",
         hints: {
-            desktop: "правый клик по ячейке, чтобы удалить её",
-            mobile: "удерживайте ячейку, чтобы удалить её"
+            desktop: "ПК: правый клик по ячейке, чтобы удалить её",
+            mobile: "Телефон: удерживайте ячейку, чтобы удалить её"
         },
         releaseTypes: {
             album: "Альбом",
@@ -48,6 +52,10 @@ const ui = {
         noResults: "Nothing found",
         searchError: "Search failed. Check your connection and try again.",
         exportError: "PNG export failed. Some covers may not have finished loading.",
+        exportMenuTitle: "PNG options",
+        exportAlbumToggle: "Add album / single / EP title",
+        exportPromoText: "Make your own chart",
+        exportPromoUrl: "ayodaemon.github.io/vibechart",
         unknownArtist: "Unknown artist",
         unknownTitle: "Untitled",
         editTitle: "✎ Cell title",
@@ -55,8 +63,8 @@ const ui = {
         cancelTitle: "Cancel",
         renamePlaceholder: "Type a custom cell title",
         hints: {
-            desktop: "right-click a cell to remove it",
-            mobile: "press and hold a cell to remove it"
+            desktop: "Desktop: right-click a cell to remove it",
+            mobile: "Mobile: press and hold a cell to remove it"
         },
         releaseTypes: {
             album: "Album",
@@ -76,6 +84,7 @@ const ui = {
 const STORAGE_KEYS = {
     lang: 'lang',
     chartData: 'chartData',
+    chartMeta: 'chartMeta',
     hiddenCells: 'hiddenCells',
     customLabels: 'customLabels'
 };
@@ -89,6 +98,7 @@ const ARTIST_ALBUM_LIMIT = 100;
 
 let currentLang = getStoredLang();
 let chartData = safeReadArray(STORAGE_KEYS.chartData, CELL_COUNT, '');
+let chartMeta = safeReadArray(STORAGE_KEYS.chartMeta, CELL_COUNT, null);
 let hiddenCells = safeReadArray(STORAGE_KEYS.hiddenCells, CELL_COUNT, false);
 let customLabels = safeReadArray(STORAGE_KEYS.customLabels, CELL_COUNT, '');
 let activeIndex = null;
@@ -98,6 +108,7 @@ let ignoreNextClick = false;
 let lastSearchToken = 0;
 let selectingInProgress = false;
 let titleEditing = false;
+let modalClosing = false;
 
 const dom = {};
 
@@ -143,6 +154,7 @@ function init() {
     dom.modalTitle = document.getElementById('modalTitle');
     dom.closeBtn = document.getElementById('closeBtn');
     dom.saveBtn = document.getElementById('saveBtn');
+    dom.mobileSaveBtn = document.getElementById('mobileSaveBtn');
     dom.clearBtn = document.getElementById('clearBtn');
     dom.mobileHint = document.getElementById('mobileHint');
     dom.desktopHint = document.getElementById('desktopHint');
@@ -153,6 +165,20 @@ function init() {
     dom.titleEditInput = document.getElementById('titleEditInput');
     dom.titleSaveBtn = document.getElementById('titleSaveBtn');
     dom.titleCancelBtn = document.getElementById('titleCancelBtn');
+    dom.scrollTopBtn = document.getElementById('scrollTopBtn');
+
+    dom.exportModal = document.getElementById('exportModal');
+    dom.exportModalTitle = document.getElementById('exportModalTitle');
+    dom.exportAlbumToggleLabel = document.getElementById('exportAlbumToggleLabel');
+    dom.exportArtistToggleLabel = document.getElementById('exportArtistToggleLabel');
+    dom.exportAlbumToggle = document.getElementById('exportAlbumToggle');
+    dom.exportArtistToggle = document.getElementById('exportArtistToggle');
+    dom.exportAlbumWrap = document.getElementById('exportAlbumWrap');
+    dom.exportArtistWrap = document.getElementById('exportArtistWrap');
+    dom.exportAlbumInput = document.getElementById('exportAlbumInput');
+    dom.exportArtistInput = document.getElementById('exportArtistInput');
+    dom.confirmExportBtn = document.getElementById('confirmExportBtn');
+    dom.closeExportBtn = document.getElementById('closeExportBtn');
 
     dom.langToggle.checked = currentLang === 'en';
     dom.langToggle.addEventListener('change', handleLanguageChange);
@@ -161,16 +187,27 @@ function init() {
     dom.titleSaveBtn.addEventListener('click', saveActiveTitle);
     dom.titleCancelBtn.addEventListener('click', () => setTitleEditMode(false));
     dom.titleEditInput.addEventListener('keydown', handleTitleInputKeydown);
+    dom.saveBtn.addEventListener('click', openExportModal);
+    dom.mobileSaveBtn?.addEventListener('click', openExportModal);
+    dom.confirmExportBtn.addEventListener('click', () => saveChart({
+        includeAlbumTitle: dom.exportAlbumToggle.checked
+    }));
+    dom.closeExportBtn.addEventListener('click', closeExportModal);
+    dom.scrollTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
 
     updateUI();
     render();
+    handleScroll();
 
     window.addEventListener('resize', () => {
         updateUI();
         render();
+        handleScroll();
     });
+    window.addEventListener('scroll', handleScroll, { passive: true });
     window.addEventListener('click', (event) => {
         if (event.target === dom.modal) closeModal();
+        if (event.target === dom.exportModal) closeExportModal();
     });
 }
 
@@ -179,13 +216,18 @@ function updateUI() {
     dom.albumInput.placeholder = s.placeholder;
     dom.closeBtn.textContent = s.closeBtn;
     dom.saveBtn.textContent = s.saveBtn;
+    if (dom.mobileSaveBtn) dom.mobileSaveBtn.textContent = s.saveBtn;
     dom.clearBtn.textContent = s.clearBtn;
     dom.titleEditBtn.textContent = s.editTitle;
     dom.titleSaveBtn.textContent = s.saveTitle;
     dom.titleCancelBtn.textContent = s.cancelTitle;
     dom.titleEditInput.placeholder = s.renamePlaceholder;
+    dom.exportModalTitle.textContent = s.exportMenuTitle;
+    dom.exportAlbumToggleLabel.textContent = s.exportAlbumToggle;
+    dom.confirmExportBtn.textContent = s.saveBtn;
+    dom.closeExportBtn.textContent = s.closeBtn;
 
-    if (activeIndex !== null && dom.modal.style.display === 'block') {
+    if (activeIndex !== null && dom.modal.classList.contains('is-open')) {
         dom.modalTitle.textContent = getCellLabel(activeIndex);
         if (titleEditing) {
             dom.titleEditInput.value = customLabels[activeIndex] || '';
@@ -196,6 +238,30 @@ function updateUI() {
     dom.desktopHint.textContent = s.hints.desktop;
     dom.mobileHint.hidden = !s.hints.mobile;
     dom.desktopHint.hidden = !s.hints.desktop;
+}
+
+function syncExportToggleState() {}
+
+function openExportModal() {
+    dom.exportAlbumToggle.checked = false;
+    dom.exportModal.style.display = 'block';
+    dom.exportModal.setAttribute('aria-hidden', 'false');
+    requestAnimationFrame(() => {
+        dom.exportModal.classList.add('is-open');
+    });
+}
+
+function closeExportModal() {
+    dom.exportModal.classList.remove('is-open');
+    dom.exportModal.setAttribute('aria-hidden', 'true');
+    window.setTimeout(() => {
+        if (!dom.exportModal.classList.contains('is-open')) dom.exportModal.style.display = 'none';
+    }, 220);
+}
+
+function handleScroll() {
+    const shouldShow = window.scrollY > (window.innerHeight * 0.5);
+    dom.scrollTopBtn.classList.toggle('is-visible', shouldShow);
 }
 
 function handleLanguageChange(event) {
@@ -288,6 +354,10 @@ function saveChartData() {
     localStorage.setItem(STORAGE_KEYS.chartData, JSON.stringify(chartData));
 }
 
+function saveChartMeta() {
+    localStorage.setItem(STORAGE_KEYS.chartMeta, JSON.stringify(chartMeta));
+}
+
 function saveHiddenCells() {
     localStorage.setItem(STORAGE_KEYS.hiddenCells, JSON.stringify(hiddenCells));
 }
@@ -338,11 +408,10 @@ function createMobileBrandCard() {
 
     const sub = document.createElement('div');
     sub.className = 'brand-cell-sub';
-    sub.textContent = ui[currentLang].hints.mobile;
+    sub.textContent = '';
 
     brandCard.appendChild(logo);
     brandCard.appendChild(line);
-    brandCard.appendChild(sub);
     return brandCard;
 }
 
@@ -352,6 +421,8 @@ function createCoverPreview(src) {
     img.alt = 'cover';
     img.crossOrigin = 'anonymous';
     img.referrerPolicy = 'no-referrer';
+    img.decoding = 'async';
+    img.loading = 'eager';
     img.addEventListener('error', () => {
         img.src = createFallbackCoverDataUrl(ui[currentLang].unknownTitle, ui[currentLang].unknownArtist);
     }, { once: true });
@@ -545,12 +616,26 @@ function getDeezerArtwork(item) {
     return item.cover_xl || item.cover_big || item.cover_medium || item.cover || item.md5_image || '';
 }
 
+function getArtistNameFromItem(item) {
+    return item?.artist?.name
+        || item?.contributors?.find((person) => person?.name)?.name
+        || item?.album?.artist?.name
+        || item?.album?.contributors?.find((person) => person?.name)?.name
+        || item?.album?.creator?.name
+        || item?.creator?.name
+        || '';
+}
+
+function getArtistIdFromItem(item) {
+    return item?.artist?.id || item?.contributors?.[0]?.id || item?.album?.artist?.id || null;
+}
+
 function normalizeDeezerAlbum(item) {
     return {
         id: `deezer-album-${item.id}`,
         source: 'deezer',
-        artistId: item.artist?.id || null,
-        artistName: item.artist?.name || ui[currentLang].unknownArtist,
+        artistId: getArtistIdFromItem(item),
+        artistName: getArtistNameFromItem(item),
         title: item.title || ui[currentLang].unknownTitle,
         artworkUrl: getDeezerArtwork(item),
         releaseDate: item.release_date || '',
@@ -565,8 +650,8 @@ function normalizeDeezerTrack(item) {
     return {
         id: `deezer-album-${album.id || item.id}`,
         source: 'deezer-track',
-        artistId: item.artist?.id || null,
-        artistName: item.artist?.name || ui[currentLang].unknownArtist,
+        artistId: getArtistIdFromItem(item),
+        artistName: getArtistNameFromItem(item),
         title: album.title || item.title || ui[currentLang].unknownTitle,
         artworkUrl: getDeezerArtwork(album),
         releaseDate: album.release_date || item.release_date || '',
@@ -805,12 +890,12 @@ function createCollectionCard(collection) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'result-card';
-    button.title = `${collection.artistName} — ${collection.title}`;
+    button.title = collection.artistName ? `${collection.artistName} — ${collection.title}` : collection.title;
     button.addEventListener('click', () => selectCollection(collection, button));
 
     const image = document.createElement('img');
     image.src = collection.artworkUrl;
-    image.alt = `${collection.artistName} — ${collection.title}`;
+    image.alt = collection.artistName ? `${collection.artistName} — ${collection.title}` : collection.title;
     image.loading = 'lazy';
     image.crossOrigin = 'anonymous';
     image.referrerPolicy = 'no-referrer';
@@ -827,7 +912,7 @@ function createCollectionCard(collection) {
 
     const artist = document.createElement('div');
     artist.className = 'result-artist';
-    artist.textContent = collection.artistName;
+    artist.textContent = collection.artistName || '';
 
     const badges = document.createElement('div');
     badges.className = 'result-badges';
@@ -848,7 +933,7 @@ function createCollectionCard(collection) {
     }
 
     meta.appendChild(title);
-    meta.appendChild(artist);
+    if (collection.artistName) meta.appendChild(artist);
     meta.appendChild(badges);
 
     button.appendChild(image);
@@ -877,13 +962,25 @@ async function selectCollection(collection, button) {
         const storedArtwork = await toPersistentImage(collection.artworkUrl, collection.title, collection.artistName);
         if (activeIndex === null) return;
         chartData[activeIndex] = storedArtwork;
+        chartMeta[activeIndex] = {
+            title: collection.title || '',
+            artistName: collection.artistName || '',
+            releaseType: collection.releaseType || ''
+        };
         saveChartData();
+        saveChartMeta();
         render();
         closeModal();
     } catch (error) {
         console.error(error);
         chartData[activeIndex] = collection.artworkUrl || createFallbackCoverDataUrl(collection.title, collection.artistName);
+        chartMeta[activeIndex] = {
+            title: collection.title || '',
+            artistName: collection.artistName || '',
+            releaseType: collection.releaseType || ''
+        };
         saveChartData();
+        saveChartMeta();
         render();
         closeModal();
     } finally {
@@ -893,21 +990,45 @@ async function selectCollection(collection, button) {
     }
 }
 
+function getImageProxyCandidates(url) {
+    if (!url || url.startsWith('data:') || url.startsWith('blob:') || !/^https?:/i.test(url)) {
+        return [url].filter(Boolean);
+    }
+
+    const trimmed = url.trim();
+    const withoutProtocol = trimmed.replace(/^https?:\/\//i, '');
+    return [
+        trimmed,
+        `https://images.weserv.nl/?url=${encodeURIComponent(withoutProtocol)}&w=900&output=jpg`,
+        `https://wsrv.nl/?url=${encodeURIComponent(withoutProtocol)}&w=900&output=jpg`
+    ];
+}
+
+async function fetchImageAsDataURL(url) {
+    const response = await fetch(url, {
+        mode: 'cors',
+        credentials: 'omit',
+        cache: 'force-cache'
+    });
+
+    if (!response.ok) throw new Error(`Image HTTP ${response.status}`);
+    const blob = await response.blob();
+    if (!blob.type || !blob.type.startsWith('image/')) {
+        throw new Error('Response is not an image');
+    }
+    return await blobToDataUrl(blob);
+}
+
 async function toPersistentImage(url, title, artist) {
     if (!url) return createFallbackCoverDataUrl(title, artist);
 
-    try {
-        const response = await fetch(url, {
-            mode: 'cors',
-            cache: 'force-cache'
-        });
-
-        if (!response.ok) throw new Error(`Image HTTP ${response.status}`);
-        const blob = await response.blob();
-        return await blobToDataUrl(blob);
-    } catch {
-        return url;
+    for (const candidate of getImageProxyCandidates(url)) {
+        try {
+            return await fetchImageAsDataURL(candidate);
+        } catch {}
     }
+
+    return createFallbackCoverDataUrl(title, artist);
 }
 
 function blobToDataUrl(blob) {
@@ -944,57 +1065,482 @@ function escapeHtml(value) {
 
 function openModal(index) {
     activeIndex = index;
+    modalClosing = false;
     dom.modal.style.display = 'block';
+    dom.modal.setAttribute('aria-hidden', 'false');
     dom.modalTitle.textContent = getCellLabel(index);
     dom.albumInput.value = '';
     dom.results.innerHTML = '';
     selectingInProgress = false;
     setLoading(false);
     setTitleEditMode(false);
-    requestAnimationFrame(() => dom.albumInput.focus());
+    requestAnimationFrame(() => {
+        dom.modal.classList.add('is-open');
+        dom.albumInput.focus();
+    });
 }
 
 function closeModal() {
-    dom.modal.style.display = 'none';
+    if (modalClosing) return;
+    modalClosing = true;
+    dom.modal.classList.remove('is-open');
+    dom.modal.setAttribute('aria-hidden', 'true');
     abortSearch();
     clearTimeout(searchTimeout);
-    activeIndex = null;
-    dom.results.innerHTML = '';
     selectingInProgress = false;
     setLoading(false);
     setTitleEditMode(false);
+    window.setTimeout(() => {
+        dom.modal.style.display = 'none';
+        activeIndex = null;
+        dom.results.innerHTML = '';
+        modalClosing = false;
+    }, 220);
 }
 
-async function saveChart() {
-    const gridEl = dom.chartGrid;
-    const hints = document.querySelectorAll('.tap-hint');
+function waitForImages(root) {
+    const images = Array.from(root.querySelectorAll('img'));
+    return Promise.all(images.map((img) => {
+        if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+        return new Promise((resolve) => {
+            const done = () => resolve();
+            img.addEventListener('load', done, { once: true });
+            img.addEventListener('error', done, { once: true });
+            setTimeout(resolve, 2500);
+        });
+    }));
+}
 
-    gridEl.classList.add('force-desktop');
-    hints.forEach((hint) => {
-        hint.style.visibility = 'hidden';
+function blobToDataURL(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
+
+async function resolveSafeExportImageSrc(src, fallbackTitle = ui[currentLang].unknownTitle, fallbackArtist = '') {
+    if (!src) {
+        return createFallbackCoverDataUrl(fallbackTitle, fallbackArtist || ui[currentLang].unknownArtist);
+    }
+
+    if (src.startsWith('data:') || src.startsWith('blob:') || src.startsWith('logo.png') || src.startsWith('qr-vibechart.png')) {
+        return src;
+    }
+
+    for (const candidate of getImageProxyCandidates(src)) {
+        try {
+            return await fetchImageAsDataURL(candidate);
+        } catch {}
+    }
+
+    return createFallbackCoverDataUrl(fallbackTitle, fallbackArtist || ui[currentLang].unknownArtist);
+}
+
+async function buildExportGrid({ includeAlbumTitle = false } = {}) {
+    const stage = document.createElement('div');
+    stage.className = 'export-stage';
+
+    const exportCapture = document.createElement('div');
+    exportCapture.className = 'export-capture';
+
+    const exportGrid = document.createElement('div');
+    exportGrid.className = 'grid export-grid';
+
+    const visibleFilledItems = ui[currentLang].cats
+        .map((_, index) => ({
+            index,
+            image: chartData[index],
+            meta: chartMeta[index],
+            hidden: hiddenCells[index],
+            label: getCellLabel(index)
+        }))
+        .filter((item) => !item.hidden && item.image);
+
+    for (const item of visibleFilledItems) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+
+        const safeImageSrc = await resolveSafeExportImageSrc(
+            item.image,
+            item?.meta?.title || ui[currentLang].unknownTitle,
+            item?.meta?.artistName || item?.meta?.artist || ''
+        );
+        const imageArea = createCoverPreview(safeImageSrc);
+        const label = document.createElement('span');
+        label.className = 'cell-label';
+        label.textContent = item.label;
+
+        cell.appendChild(imageArea);
+        cell.appendChild(label);
+        exportGrid.appendChild(cell);
+    }
+
+    const firstItemWithTitle = visibleFilledItems.find((item) => item?.meta?.title) || null;
+    const firstMeta = firstItemWithTitle?.meta || null;
+    if (includeAlbumTitle && firstMeta?.title) {
+        const card = document.createElement('div');
+        card.className = 'export-meta-card';
+
+        const cover = document.createElement('div');
+        cover.className = 'export-meta-cover';
+        const firstCover = firstItemWithTitle?.image || '';
+        if (firstCover) {
+            const safeMetaCover = await resolveSafeExportImageSrc(
+                firstCover,
+                firstMeta.title,
+                firstMeta.artistName || firstMeta.artist || ''
+            );
+            const img = createCoverPreview(safeMetaCover);
+            img.alt = firstMeta.title;
+            cover.appendChild(img);
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'export-meta-info';
+
+        const title = document.createElement('div');
+        title.className = 'export-meta-title';
+        title.textContent = firstMeta.title;
+        meta.appendChild(title);
+
+        card.appendChild(cover);
+        card.appendChild(meta);
+        exportGrid.appendChild(card);
+    }
+
+    const itemCount = exportGrid.children.length;
+    const columns = Math.min(6, Math.max(1, itemCount));
+    exportGrid.style.gridTemplateColumns = `repeat(${columns}, 180px)`;
+    exportGrid.style.width = `${columns * 180 + Math.max(0, columns - 1) * 12}px`;
+    exportCapture.style.width = `${columns * 180 + Math.max(0, columns - 1) * 12 + 30}px`;
+    stage.style.width = `${columns * 180 + Math.max(0, columns - 1) * 12 + 50}px`;
+
+    const footer = document.createElement('div');
+    footer.className = 'export-footer';
+
+    const brand = document.createElement('div');
+    brand.className = 'export-footer-brand';
+
+    const logo = document.createElement('img');
+    logo.src = 'logo.png';
+    logo.alt = 'vibechart';
+    logo.className = 'export-footer-logo';
+    logo.addEventListener('error', () => {
+        logo.style.display = 'none';
+    }, { once: true });
+
+    const brandTextWrap = document.createElement('div');
+    brandTextWrap.className = 'export-footer-copy';
+
+    const promo = document.createElement('div');
+    promo.className = 'export-footer-title';
+    promo.textContent = ui[currentLang].exportPromoText;
+
+    const url = document.createElement('div');
+    url.className = 'export-footer-url';
+    url.textContent = ui[currentLang].exportPromoUrl;
+
+    brandTextWrap.appendChild(promo);
+    brandTextWrap.appendChild(url);
+    brand.appendChild(logo);
+    brand.appendChild(brandTextWrap);
+
+    const qrWrap = document.createElement('div');
+    qrWrap.className = 'export-footer-qr-wrap';
+
+    const qr = document.createElement('img');
+    qr.src = 'qr-vibechart.png';
+    qr.alt = 'QR vibechart';
+    qr.className = 'export-footer-qr';
+
+    qrWrap.appendChild(qr);
+    footer.appendChild(brand);
+    footer.appendChild(qrWrap);
+
+    exportCapture.appendChild(exportGrid);
+    exportCapture.appendChild(footer);
+    stage.appendChild(exportCapture);
+
+    document.body.appendChild(stage);
+    return { stage, exportCapture };
+}
+
+
+function getVisibleFilledExportItems() {
+    return ui[currentLang].cats
+        .map((_, index) => ({
+            index,
+            image: chartData[index],
+            meta: chartMeta[index],
+            hidden: hiddenCells[index],
+            label: getCellLabel(index)
+        }))
+        .filter((item) => !item.hidden && item.image);
+}
+
+function loadImageForCanvas(src) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.decoding = 'async';
+        img.crossOrigin = 'anonymous';
+        img.referrerPolicy = 'no-referrer';
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = src;
+    });
+}
+
+function wrapCanvasText(ctx, text, maxWidth, maxLines = 3) {
+    const value = String(text || '').trim();
+    if (!value) return [];
+
+    const words = value.split(/\s+/);
+    const lines = [];
+    let current = '';
+
+    for (const word of words) {
+        const candidate = current ? `${current} ${word}` : word;
+        if (ctx.measureText(candidate).width <= maxWidth) {
+            current = candidate;
+            continue;
+        }
+        if (current) {
+            lines.push(current);
+            current = word;
+        } else {
+            lines.push(word);
+            current = '';
+        }
+        if (lines.length >= maxLines - 1) break;
+    }
+
+    if (current && lines.length < maxLines) {
+        lines.push(current);
+    }
+
+    if (lines.length > maxLines) {
+        lines.length = maxLines;
+    }
+
+    if (words.length && lines.length === maxLines) {
+        const consumed = lines.join(' ').split(/\s+/).filter(Boolean).length;
+        if (consumed < words.length) {
+            let lastLine = lines[maxLines - 1];
+            while (lastLine.length > 1 && ctx.measureText(`${lastLine}…`).width > maxWidth) {
+                lastLine = lastLine.slice(0, -1).trim();
+            }
+            lines[maxLines - 1] = `${lastLine}…`;
+        }
+    }
+
+    return lines;
+}
+
+function drawRoundedRect(ctx, x, y, width, height, radius = 0) {
+    const r = Math.min(radius, width / 2, height / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + width, y, x + width, y + height, r);
+    ctx.arcTo(x + width, y + height, x, y + height, r);
+    ctx.arcTo(x, y + height, x, y, r);
+    ctx.arcTo(x, y, x + width, y, r);
+    ctx.closePath();
+}
+
+async function renderExportCanvas(options = {}) {
+    const { includeAlbumTitle = false } = options;
+    const visibleFilledItems = getVisibleFilledExportItems();
+
+    if (!visibleFilledItems.length) {
+        throw new Error('Nothing to export');
+    }
+
+    const cellWidth = 180;
+    const imageHeight = 180;
+    const labelHeight = 70;
+    const cellHeight = imageHeight + labelHeight;
+    const gap = 12;
+    const columns = Math.min(6, Math.max(1, visibleFilledItems.length));
+    const rows = Math.ceil(visibleFilledItems.length / columns);
+    const gridWidth = columns * cellWidth + Math.max(0, columns - 1) * gap;
+    const gridHeight = rows * cellHeight + Math.max(0, rows - 1) * gap;
+    const outerPadding = 15;
+    const footerMarginTop = 28;
+    const footerHeight = 150;
+    const metaCardHeight = includeAlbumTitle ? 250 + gap : 0;
+    const canvasWidth = gridWidth + outerPadding * 2;
+    const canvasHeight = outerPadding * 2 + gridHeight + metaCardHeight + footerMarginTop + footerHeight;
+
+    const canvas = document.createElement('canvas');
+    const scale = 3;
+    canvas.width = canvasWidth * scale;
+    canvas.height = canvasHeight * scale;
+    canvas.style.width = `${canvasWidth}px`;
+    canvas.style.height = `${canvasHeight}px`;
+
+    const ctx = canvas.getContext('2d');
+    ctx.scale(scale, scale);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    ctx.textBaseline = 'alphabetic';
+    ctx.imageSmoothingEnabled = true;
+
+    const preparedItems = [];
+    for (const item of visibleFilledItems) {
+        const safeSrc = await resolveSafeExportImageSrc(
+            item.image,
+            item?.meta?.title || ui[currentLang].unknownTitle,
+            item?.meta?.artistName || item?.meta?.artist || ''
+        );
+        let img;
+        try {
+            img = await loadImageForCanvas(safeSrc);
+        } catch {
+            img = await loadImageForCanvas(createFallbackCoverDataUrl(
+                item?.meta?.title || ui[currentLang].unknownTitle,
+                item?.meta?.artistName || item?.meta?.artist || ui[currentLang].unknownArtist
+            ));
+        }
+        preparedItems.push({ ...item, img });
+    }
+
+    preparedItems.forEach((item, idx) => {
+        const col = idx % columns;
+        const row = Math.floor(idx / columns);
+        const x = outerPadding + col * (cellWidth + gap);
+        const y = outerPadding + row * (cellHeight + gap);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 3;
+        ctx.fillRect(x, y, cellWidth, cellHeight);
+        ctx.strokeRect(x + 1.5, y + 1.5, cellWidth - 3, cellHeight - 3);
+        ctx.drawImage(item.img, x, y, cellWidth, imageHeight);
+
+        ctx.beginPath();
+        ctx.moveTo(x, y + imageHeight);
+        ctx.lineTo(x + cellWidth, y + imageHeight);
+        ctx.stroke();
+
+        ctx.fillStyle = '#000000';
+        ctx.font = '700 11px Arial, sans-serif';
+        ctx.textAlign = 'center';
+        const labelLines = wrapCanvasText(ctx, item.label, cellWidth - 16, 3);
+        const lineHeight = 13;
+        const totalLabelHeight = labelLines.length * lineHeight;
+        let textY = y + imageHeight + 10 + (labelHeight - 20 - totalLabelHeight) / 2 + lineHeight - 2;
+        labelLines.forEach((line) => {
+            ctx.fillText(line, x + cellWidth / 2, textY, cellWidth - 16);
+            textY += lineHeight;
+        });
     });
 
-    try {
-        const canvas = await html2canvas(dom.captureArea, {
-            backgroundColor: '#ffffff',
-            scale: 3,
-            useCORS: true,
-            allowTaint: false,
-            logging: false
-        });
+    let cursorY = outerPadding + gridHeight;
+    const firstItemWithTitle = visibleFilledItems.find((item) => item?.meta?.title) || null;
+    const firstMeta = firstItemWithTitle?.meta || null;
 
-        const link = document.createElement('a');
-        link.download = 'music-chart-imaiv.png';
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-    } catch (error) {
-        alert(ui[currentLang].exportError);
-        console.error(error);
-    } finally {
-        gridEl.classList.remove('force-desktop');
-        hints.forEach((hint) => {
-            hint.style.visibility = 'visible';
+    if (includeAlbumTitle && firstMeta?.title) {
+        cursorY += gap;
+        const cardX = outerPadding;
+        const cardY = cursorY;
+        const cardWidth = gridWidth;
+        const coverWidth = 180;
+
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 3;
+        ctx.fillRect(cardX, cardY, cardWidth, 250);
+        ctx.strokeRect(cardX + 1.5, cardY + 1.5, cardWidth - 3, 247);
+        ctx.beginPath();
+        ctx.moveTo(cardX + coverWidth, cardY);
+        ctx.lineTo(cardX + coverWidth, cardY + 250);
+        ctx.stroke();
+
+        const safeMetaCover = await resolveSafeExportImageSrc(
+            firstItemWithTitle?.image || '',
+            firstMeta.title,
+            firstMeta.artistName || firstMeta.artist || ''
+        );
+        try {
+            const metaCover = await loadImageForCanvas(safeMetaCover);
+            ctx.drawImage(metaCover, cardX, cardY, coverWidth, 250);
+        } catch {}
+
+        ctx.fillStyle = '#1677e8';
+        ctx.textAlign = 'left';
+        ctx.font = '700 32px Arial, sans-serif';
+        const metaLines = wrapCanvasText(ctx, firstMeta.title, Math.max(80, cardWidth - coverWidth - 44), 5);
+        let metaY = cardY + 58;
+        metaLines.forEach((line) => {
+            ctx.fillText(line, cardX + coverWidth + 22, metaY, cardWidth - coverWidth - 44);
+            metaY += 36;
         });
+        cursorY += 250;
+    }
+
+    cursorY += footerMarginTop;
+
+    const [logoImg, qrImg] = await Promise.all([
+        loadImageForCanvas('logo.png').catch(() => null),
+        loadImageForCanvas('qr-vibechart.png').catch(() => null)
+    ]);
+
+    const footerY = cursorY;
+    const qrSize = 124;
+    const qrBoxSize = qrSize + 16;
+    const qrBoxX = outerPadding + gridWidth - qrBoxSize;
+
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 3;
+    ctx.fillRect(qrBoxX, footerY, qrBoxSize, qrBoxSize);
+    ctx.strokeRect(qrBoxX + 1.5, footerY + 1.5, qrBoxSize - 3, qrBoxSize - 3);
+    if (qrImg) {
+        ctx.drawImage(qrImg, qrBoxX + 8, footerY + 8, qrSize, qrSize);
+    }
+
+    let brandX = outerPadding + 8;
+    if (logoImg) {
+        const logoWidth = 210;
+        const ratio = logoImg.naturalHeight ? logoImg.naturalWidth / logoImg.naturalHeight : 1;
+        const logoHeight = Math.round(logoWidth / ratio);
+        ctx.drawImage(logoImg, brandX, footerY + 8, logoWidth, logoHeight);
+        brandX += logoWidth + 16;
+    }
+
+    ctx.fillStyle = '#000000';
+    ctx.textAlign = 'left';
+    ctx.font = '700 28px Arial, sans-serif';
+    ctx.fillText(ui[currentLang].exportPromoText, brandX, footerY + 42);
+    ctx.font = '700 18px Arial, sans-serif';
+    ctx.globalAlpha = 0.7;
+    ctx.fillText(ui[currentLang].exportPromoUrl, brandX, footerY + 72);
+    ctx.globalAlpha = 1;
+
+    return canvas;
+}
+
+async function saveChart(options = {}) {
+    closeExportModal();
+
+    try {
+        const canvas = await renderExportCanvas(options);
+        const blob = await new Promise((resolve, reject) => {
+            canvas.toBlob((result) => {
+                if (result) resolve(result);
+                else reject(new Error('PNG export failed'));
+            }, 'image/png');
+        });
+        const link = document.createElement('a');
+        link.download = 'vibechart.png';
+        link.href = URL.createObjectURL(blob);
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(link.href), 2000);
+    } catch (error) {
+        console.error(error);
+        alert(ui[currentLang].exportError);
     }
 }
 
@@ -1002,10 +1548,12 @@ function clearData() {
     if (!confirm(ui[currentLang].confirm)) return;
 
     chartData = Array(CELL_COUNT).fill('');
+    chartMeta = Array(CELL_COUNT).fill(null);
     hiddenCells = Array(CELL_COUNT).fill(false);
     customLabels = Array(CELL_COUNT).fill('');
 
     localStorage.removeItem(STORAGE_KEYS.chartData);
+    localStorage.removeItem(STORAGE_KEYS.chartMeta);
     localStorage.removeItem(STORAGE_KEYS.hiddenCells);
     localStorage.removeItem(STORAGE_KEYS.customLabels);
 
