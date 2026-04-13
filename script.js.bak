@@ -23,8 +23,8 @@ const ui = {
         cancelTitle: "Отмена",
         renamePlaceholder: "Введите свое название ячейки",
         hints: {
-            desktop: "правый клик по ячейке, чтобы удалить её",
-            mobile: "удерживайте ячейку, чтобы удалить её"
+            desktop: "Правый клик по ячейке, чтобы удалить её",
+            mobile: "Удерживайте ячейку, чтобы удалить её"
         },
         releaseTypes: {
             album: "Альбом",
@@ -63,8 +63,8 @@ const ui = {
         cancelTitle: "Cancel",
         renamePlaceholder: "Type a custom cell title",
         hints: {
-            desktop: "right-click a cell to remove it",
-            mobile: "press and hold a cell to remove it"
+            desktop: "Desktop: right-click a cell to remove it",
+            mobile: "Mobile: press and hold a cell to remove it"
         },
         releaseTypes: {
             album: "Album",
@@ -1523,7 +1523,7 @@ async function saveChart(options = {}) {
         const blob = await new Promise((resolve, reject) => {
             canvas.toBlob((result) => {
                 if (result) resolve(result);
-                else reject(new Error('PNG export failed'));
+                else reject(new Error('JPG export failed'));
             }, 'image/png');
         });
         const link = document.createElement('a');
