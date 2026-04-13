@@ -23,8 +23,8 @@ const ui = {
         cancelTitle: "Отмена",
         renamePlaceholder: "Введите свое название ячейки",
         hints: {
-            desktop: "правый клик по ячейке, чтобы удалить её",
-            mobile: "удерживайте ячейку, чтобы удалить её"
+            desktop: "Правый клик по ячейке, чтобы удалить её",
+            mobile: "Удерживайте ячейку, чтобы удалить её"
         },
         releaseTypes: {
             album: "Альбом",
@@ -63,8 +63,8 @@ const ui = {
         cancelTitle: "Cancel",
         renamePlaceholder: "Type a custom cell title",
         hints: {
-            desktop: "right-click a cell to remove it",
-            mobile: "press and hold a cell to remove it"
+            desktop: "Desktop: right-click a cell to remove it",
+            mobile: "Mobile: press and hold a cell to remove it"
         },
         releaseTypes: {
             album: "Album",
@@ -1620,28 +1620,33 @@ async function saveChart(options = {}) {
 
     try {
         const canvas = await renderExportCanvas(options);
-        const exportFormats = [
-            { mimeType: 'image/jpeg', extension: 'jpg', quality: 0.9 },
-            { mimeType: 'image/png', extension: 'png' }
-        ];
+        const blob = await new Promise((resolve) => {
+            canvas.toBlob((result) => resolve(result || null), 'image/jpeg', 0.92);
+        });
 
-        let blob = null;
-        let fileExtension = 'png';
-        for (const format of exportFormats) {
-            const candidate = await new Promise((resolve) => {
-                canvas.toBlob((result) => resolve(result || null), format.mimeType, format.quality);
-            });
-            if (candidate && candidate.size > 0) {
-                blob = candidate;
-                fileExtension = format.extension;
-                break;
+        if (!blob || blob.size <= 0) throw new Error('Image export failed');
+
+        const fileName = 'vibechart.jpg';
+        const file = new File([blob], fileName, { type: 'image/jpeg' });
+
+        if (isMobileDevice() && navigator.canShare && navigator.share) {
+            const canShareFile = navigator.canShare({ files: [file] });
+            if (canShareFile) {
+                try {
+                    await navigator.share({
+                        files: [file],
+                        title: fileName
+                    });
+                    return;
+                } catch (shareError) {
+                    if (shareError && shareError.name === 'AbortError') return;
+                    console.warn('Native share failed, falling back to direct download.', shareError);
+                }
             }
         }
 
-        if (!blob) throw new Error('Image export failed');
-
         const link = document.createElement('a');
-        link.download = `vibechart.${fileExtension}`;
+        link.download = fileName;
         link.href = URL.createObjectURL(blob);
         link.click();
         setTimeout(() => URL.revokeObjectURL(link.href), 2000);
