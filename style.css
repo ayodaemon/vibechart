@@ -703,3 +703,46 @@ footer {
         font-size: 13px;
     }
 }
+
+/* Custom Entry Panel (Своя обложка / Текст) */
+.custom-entry-panel {
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 20px;
+    width: 100%;
+    background: #f9f9f9;
+    padding: 16px;
+    border-radius: 12px;
+    border: 2px dashed #ccc;
+}
+
+.custom-upload-btn {
+    background-color: #e0e0e0;
+    color: #000;
+    border: 2px solid #000;
+}
+
+.custom-text-row {
+    display: flex;
+    gap: 10px;
+}
+
+.custom-input {
+    flex: 1;
+    padding: 10px;
+    border: 2px solid #000;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 14px;
+}
+
+.custom-save-text-btn {
+    white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+    .custom-text-row {
+        flex-direction: column;
+    }
+}
