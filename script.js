@@ -1,13 +1,13 @@
 const ui = {
     ru: {
-        placeholder: "Начните вводить имя артиста или альбом...",
+        placeholder: "Название альбома...",
         closeBtn: "Закрыть",
         saveBtn: "Скачать PNG",
         clearBtn: "Очистить всё",
         confirm: "Сбросить чарт и вернуть все ячейки?",
         tapText: "+ Выбрать",
-        artistHeader: "Артисты (нажмите для дискографии):",
-        discographyHeader: "Дискография артиста:",
+        notFound: "Ничего не найдено",
+        networkError: "Ошибка сети. Попробуйте позже.",
         hints: {
             desktop: "Для удаления ячейки: ПКМ",
             mobile: "Для удаления ячейки: долгий тап"
@@ -20,14 +20,14 @@ const ui = {
         ]
     },
     en: {
-        placeholder: "Start typing artist name or album...",
+        placeholder: "Album name...",
         closeBtn: "Close",
         saveBtn: "Download PNG",
         clearBtn: "Clear all",
         confirm: "Reset everything and restore cells?",
         tapText: "+ Tap to add",
-        artistHeader: "Search Results:",
-        discographyHeader: "Artist Discography:",
+        notFound: "Nothing found",
+        networkError: "Network error. Please try again.",
         hints: {
             desktop: "To delete a cell: Right-click",
             mobile: "To delete a cell: long press"
@@ -41,13 +41,11 @@ const ui = {
     }
 };
 
-// Безопасный парсинг LocalStorage
 function safeParse(key, fallback) {
     try {
         const value = localStorage.getItem(key);
         return value ? JSON.parse(value) : fallback;
     } catch (e) {
-        console.error(`Error parsing localStorage key "${key}":`, e);
         return fallback;
     }
 }
@@ -77,11 +75,10 @@ function init() {
         if (!q) { 
             document.getElementById('results').innerHTML = ''; 
             document.getElementById('searchLoader').style.display = 'none';
-            document.getElementById('artistDiscographyHeader').style.display = 'none'; // Скрываем заголовок
             return; 
         }
         document.getElementById('searchLoader').style.display = 'block';
-        searchTimeout = setTimeout(() => searchHybrid(q), 400);
+        searchTimeout = setTimeout(() => searchAlbums(q), 500);
     });
 }
 
@@ -103,21 +100,20 @@ function updateUI() {
 
 function render() {
     const grid = document.getElementById('chartGrid');
-    grid.innerHTML = ''; // Очистка родителя безопасна
+    grid.innerHTML = '';
     
     ui[currentLang].cats.forEach((text, i) => {
         if (hiddenCells[i]) return;
         
         const cell = document.createElement('div');
         cell.className = 'cell';
-        
         const imgUrl = chartData[i];
         
         if (imgUrl) {
             const img = document.createElement('img');
             img.src = imgUrl;
             img.alt = "cover";
-            img.crossOrigin = "anonymous"; // Помогает с CORS при экспорте
+            img.crossOrigin = "anonymous";
             cell.appendChild(img);
         } else {
             const emptyImg = document.createElement('div');
@@ -133,11 +129,10 @@ function render() {
         spanText.textContent = text;
         cell.appendChild(spanText);
         
-        // Обработка событий (защита от конфликта тапов)
         let isLongPress = false;
         let timer;
 
-        cell.addEventListener('click', (e) => {
+        cell.addEventListener('click', () => {
             if (!isLongPress) openModal(i);
         });
         
@@ -146,7 +141,7 @@ function render() {
             removeCell(i);
         });
 
-        cell.addEventListener('touchstart', (e) => {
+        cell.addEventListener('touchstart', () => {
             isLongPress = false;
             timer = setTimeout(() => {
                 isLongPress = true;
@@ -162,31 +157,40 @@ function render() {
 }
 
 function removeCell(i) {
-    if(confirm(currentLang === 'ru' ? "Скрыть эту ячейку?" : "Hide this cell?")) {
+    if(confirm(ui[currentLang].confirm.replace("?", ""))) { 
         hiddenCells[i] = true;
         localStorage.setItem('hiddenCells', JSON.stringify(hiddenCells));
         render();
     }
 }
 
-// Защищенный загрузчик с пробросом реальных ошибок
-async function fetchItunes(url, signal) {
-    const res = await fetch(url, { signal });
-    if (!res.ok) throw new Error('Network response was not ok');
+// Надежный конструктор URL для API Apple
+async function fetchAlbums(query, country) {
+    const url = new URL('https://itunes.apple.com/search');
+    url.searchParams.append('term', query);
+    url.searchParams.append('media', 'music');
+    url.searchParams.append('entity', 'album');
+    url.searchParams.append('limit', '16'); // Берем 16 альбомов
+    url.searchParams.append('country', country);
+
+    const res = await fetch(url.toString(), { signal: controller.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     return data.results || [];
 }
 
-// Вспомогательная функция для безопасного вывода текста (XSS защита)
-function createTextNode(text, styles = {}) {
-    const el = document.createElement('p');
-    el.textContent = text;
-    Object.assign(el.style, styles);
-    return el;
+// Хелпер вывода текста в модалку
+function showMessage(text, isError = false) {
+    const resDiv = document.getElementById('results');
+    resDiv.innerHTML = '';
+    const msg = document.createElement('div');
+    msg.style.cssText = `grid-column: 1 / -1; text-align: center; padding: 20px; font-weight: bold; ${isError ? 'color: red;' : 'opacity: 0.5;'}`;
+    msg.textContent = text;
+    resDiv.appendChild(msg);
 }
 
-// Упрощенный гибридный поиск: только альбомы
-async function searchHybrid(q) {
+// Упрощенный поиск - только обложки
+async function searchAlbums(q) {
     if (controller) controller.abort();
     controller = new AbortController();
     
@@ -194,42 +198,48 @@ async function searchHybrid(q) {
     const s = ui[currentLang];
 
     try {
-        const query = encodeURIComponent(q);
-        
-        // Два параллельных запроса (RU + US) х (Альбомы)
+        const safeFetch = async (c) => {
+            try { return await fetchAlbums(q, c); } 
+            catch (e) { if (e.name === 'AbortError') throw e; return []; }
+        };
+
+        // Ищем в двух сторах для полноты
         const [ruAlbums, usAlbums] = await Promise.all([
-            fetchItunes(`https://itunes.apple.com/search?term=${query}&entity=album&limit=16&country=ru`, controller.signal).catch(e => { if (e.name === 'AbortError') throw e; return []; }),
-            fetchItunes(`https://itunes.apple.com/search?term=${query}&entity=album&limit=16&country=us`, controller.signal).catch(e => { if (e.name === 'AbortError') throw e; return []; })
+            safeFetch('ru'), safeFetch('us')
         ]);
-        
+
+        document.getElementById('searchLoader').style.display = 'none';
+
+        const combinedAlbums = [...ruAlbums, ...usAlbums];
         // Убираем дубликаты
-        const uniqueAlbums = Array.from(new Map([...ruAlbums, ...usAlbums].map(a => [a.collectionId, a])).values());
+        const uniqueAlbums = Array.from(new Map(combinedAlbums.map(a => [a.collectionId, a])).values());
 
         resDiv.innerHTML = '';
-        document.getElementById('searchLoader').style.display = 'none';
-        document.getElementById('artistDiscographyHeader').style.display = 'none'; // Скрываем заголовок
         
         if (uniqueAlbums.length === 0) {
-            resDiv.appendChild(createTextNode(s.networkError, { gridColumn: '1 / -1', opacity: '0.5' }));
+            showMessage(s.notFound);
             return;
         }
 
-        // Отрисовка только найденных обложек альбомов
         uniqueAlbums.forEach(a => {
             if (!a.artworkUrl100) return;
             const colEl = document.createElement('div');
-            colEl.className = 'collection-result html2canvas-ignore';
+            // ВАЖНО: Никаких классов невидимок!
+            colEl.className = 'collection-result';
+            
             const img = document.createElement('img');
             img.src = a.artworkUrl100.replace('100x100bb', '600x600bb');
             img.title = `${a.artistName} - ${a.collectionName}`;
             img.loading = "lazy";
             img.crossOrigin = "anonymous";
+            
             img.addEventListener('click', () => {
                 chartData[activeIndex] = img.src;
                 localStorage.setItem('chartData', JSON.stringify(chartData));
                 render();
                 closeModal();
             });
+            
             colEl.appendChild(img);
             resDiv.appendChild(colEl);
         });
@@ -237,8 +247,7 @@ async function searchHybrid(q) {
     } catch(e) {
         if (e.name !== 'AbortError') {
             document.getElementById('searchLoader').style.display = 'none';
-            resDiv.innerHTML = '';
-            resDiv.appendChild(createTextNode(s.networkError, { gridColumn: '1 / -1', color: 'red' }));
+            showMessage(s.networkError, true);
         }
     }
 }
@@ -250,18 +259,21 @@ function openModal(i) {
     document.getElementById('albumInput').value = '';
     document.getElementById('results').innerHTML = '';
     document.getElementById('searchLoader').style.display = 'none';
-    document.getElementById('artistDiscographyHeader').style.display = 'none';
+    
+    // Прячем старые заголовки дискографии, если они остались в HTML
+    const discoHeader = document.getElementById('artistDiscographyHeader');
+    if (discoHeader) discoHeader.style.display = 'none';
+    
     document.getElementById('albumInput').focus();
 }
 
 function closeModal() {
     document.getElementById('modal').style.display = 'none';
     if (controller) controller.abort();
-    document.getElementById('artistDiscographyHeader').style.display = 'none';
     activeIndex = null;
 }
 
-// Экспорт с защитой try/catch/finally
+// Экспорт картинки
 async function saveChart() {
     const area = document.getElementById('capture-area');
     const gridEl = document.getElementById('chartGrid');
@@ -277,16 +289,13 @@ async function saveChart() {
         a.href = canvas.toDataURL('image/png');
         a.click();
     } catch (error) {
-        console.error("Export error:", error);
-        alert(currentLang === 'ru' ? "Ошибка сохранения картинки. Возможно, проблема с CORS." : "Failed to save image. Possible CORS issue.");
+        alert(currentLang === 'ru' ? "Ошибка сохранения картинки." : "Failed to save image.");
     } finally {
-        // Гарантированно возвращаем интерфейс в норму
         gridEl.classList.remove('force-desktop');
         hints.forEach(h => h.style.display = 'block');
     }
 }
 
-// Безопасная очистка (не трогаем чужие ключи)
 function clearData() {
     if (confirm(ui[currentLang].confirm)) {
         chartData = Array(24).fill("");
