@@ -845,7 +845,14 @@ async function resolveArtistMode(query, signal) {
 async function loadArtistReleases(artist, signal) {
     const response = await fetchDeezer(`/artist/${artist.id}/albums?limit=${ARTIST_ALBUM_LIMIT}&index=0`, signal);
     const data = Array.isArray(response?.data) ? response.data : [];
-    return data.map(normalizeDeezerAlbum).filter((item) => item.artworkUrl);
+    
+    return data.map((item) => {
+        // Подкидываем артиста из контекста поиска, если API Deezer его не отдал внутри самого релиза
+        if (!item.artist) {
+            item.artist = artist;
+        }
+        return normalizeDeezerAlbum(item);
+    }).filter((item) => item.artworkUrl);
 }
 
 async function loadSearchCollections(query, signal) {
@@ -1177,38 +1184,6 @@ async function buildExportGrid({ includeAlbumTitle = false } = {}) {
         exportGrid.appendChild(cell);
     }
 
-    const firstItemWithTitle = visibleFilledItems.find((item) => item?.meta?.title) || null;
-    const firstMeta = firstItemWithTitle?.meta || null;
-    if (includeAlbumTitle && firstMeta?.title) {
-        const card = document.createElement('div');
-        card.className = 'export-meta-card';
-
-        const cover = document.createElement('div');
-        cover.className = 'export-meta-cover';
-        const firstCover = firstItemWithTitle?.image || '';
-        if (firstCover) {
-            const safeMetaCover = await resolveSafeExportImageSrc(
-                firstCover,
-                firstMeta.title,
-                firstMeta.artistName || firstMeta.artist || ''
-            );
-            const img = createCoverPreview(safeMetaCover);
-            img.alt = firstMeta.title;
-            cover.appendChild(img);
-        }
-
-        const meta = document.createElement('div');
-        meta.className = 'export-meta-info';
-
-        const title = document.createElement('div');
-        title.className = 'export-meta-title';
-        title.textContent = firstMeta.title;
-        meta.appendChild(title);
-
-        card.appendChild(cover);
-        card.appendChild(meta);
-        exportGrid.appendChild(card);
-    }
 
     const itemCount = exportGrid.children.length;
     const columns = Math.min(6, Math.max(1, itemCount));
@@ -1223,28 +1198,19 @@ async function buildExportGrid({ includeAlbumTitle = false } = {}) {
     const brand = document.createElement('div');
     brand.className = 'export-footer-brand';
 
-    const logo = document.createElement('img');
-    logo.src = 'logo.png';
-    logo.alt = 'vibechart';
-    logo.className = 'export-footer-logo';
-    logo.addEventListener('error', () => {
-        logo.style.display = 'none';
-    }, { once: true });
-
     const brandTextWrap = document.createElement('div');
     brandTextWrap.className = 'export-footer-copy';
 
     const promo = document.createElement('div');
     promo.className = 'export-footer-title';
-    promo.textContent = ui[currentLang].exportPromoText;
+    promo.textContent = ui[currentLang].exportPromoText.toLowerCase();
 
-    const url = document.createElement('div');
-    url.className = 'export-footer-url';
-    url.textContent = ui[currentLang].exportPromoUrl;
+    const promoUrl = document.createElement('div');
+    promoUrl.className = 'export-footer-url';
+    promoUrl.textContent = ui[currentLang].exportPromoUrl;
 
     brandTextWrap.appendChild(promo);
-    brandTextWrap.appendChild(url);
-    brand.appendChild(logo);
+    brandTextWrap.appendChild(promoUrl);
     brand.appendChild(brandTextWrap);
 
     const qrWrap = document.createElement('div');
@@ -1349,6 +1315,129 @@ function drawRoundedRect(ctx, x, y, width, height, radius = 0) {
     ctx.closePath();
 }
 
+function getExportReleaseBadgeText(meta = {}) {
+    const releaseType = meta?.releaseType || 'collection';
+    return ui[currentLang].releaseTypes?.[releaseType] || ui[currentLang].releaseTypes?.collection || '';
+}
+
+function getExportReleaseYear(meta = {}) {
+    const value = meta?.releaseDate || '';
+    const year = new Date(value).getFullYear();
+    return Number.isNaN(year) ? '' : String(year);
+}
+
+function drawExportSearchCard(ctx, item, x, y, width, imageHeight, metaHeight, footerHeight = 0) {
+    const radius = 14;
+    const borderWidth = 2;
+    const totalHeight = imageHeight + metaHeight + footerHeight;
+    const metaY = y + imageHeight;
+    const footerY = metaY + metaHeight;
+    const paddingX = 10;
+    const paddingTop = 10;
+    const textMaxWidth = width - paddingX * 2;
+    const title = String(item?.meta?.title || '').trim();
+    const artist = String(item?.meta?.artistName || item?.meta?.artist || '').trim();
+    const badgeText = getExportReleaseBadgeText(item?.meta || {});
+    const yearText = getExportReleaseYear(item?.meta || {});
+    const cardLabel = String(item?.label || '').trim();
+    const fontStack = 'Arial, "Segoe UI", "Noto Sans", sans-serif';
+
+    ctx.save();
+    drawRoundedRect(ctx, x, y, width, totalHeight, radius);
+    ctx.clip();
+    if (item?.img) {
+        ctx.drawImage(item.img, x, y, width, imageHeight);
+    }
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x, metaY, width, metaHeight + footerHeight);
+    ctx.restore();
+
+    ctx.save();
+    drawRoundedRect(ctx, x, y, width, totalHeight, radius);
+    ctx.lineWidth = borderWidth;
+    ctx.strokeStyle = '#000000';
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(x, metaY);
+    ctx.lineTo(x + width, metaY);
+    if (footerHeight > 0) {
+        ctx.moveTo(x, footerY);
+        ctx.lineTo(x + width, footerY);
+    }
+    ctx.lineWidth = borderWidth;
+    ctx.strokeStyle = '#000000';
+    ctx.stroke();
+    ctx.restore();
+
+    let cursorY = metaY + paddingTop;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+
+    if (title) {
+        ctx.fillStyle = '#1677e8';
+        ctx.font = `700 13px ${fontStack}`;
+        const titleLines = wrapCanvasText(ctx, title, textMaxWidth, 2);
+        const titleLineHeight = 16;
+        titleLines.forEach((line) => {
+            ctx.fillText(line, x + paddingX, cursorY, textMaxWidth);
+            cursorY += titleLineHeight;
+        });
+        cursorY += 2;
+    }
+
+    if (artist) {
+        ctx.fillStyle = '#111111';
+        ctx.font = `600 12px ${fontStack}`;
+        const artistLines = wrapCanvasText(ctx, artist, textMaxWidth, 1);
+        const artistLineHeight = 14;
+        artistLines.forEach((line) => {
+            ctx.fillText(line, x + paddingX, cursorY, textMaxWidth);
+            cursorY += artistLineHeight;
+        });
+        cursorY += 6;
+    }
+
+    const chipHeight = 20;
+    const chipRadius = 999;
+    const chipY = metaY + metaHeight - chipHeight - 10;
+    let chipX = x + paddingX;
+
+    const chipTexts = [badgeText, yearText].filter(Boolean);
+    chipTexts.forEach((text) => {
+        ctx.font = `700 11px ${fontStack}`;
+        const chipWidth = Math.ceil(ctx.measureText(text).width) + 16;
+        drawRoundedRect(ctx, chipX, chipY, chipWidth, chipHeight, chipRadius);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = '#000000';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, chipX + 8, chipY + chipHeight / 2, chipWidth - 16);
+        chipX += chipWidth + 6;
+    });
+
+    if (footerHeight > 0 && cardLabel) {
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `700 11px ${fontStack}`;
+        const labelLines = wrapCanvasText(ctx, cardLabel, width - 18, 2);
+        const lineHeight = 13;
+        const blockHeight = labelLines.length * lineHeight;
+        let lineY = footerY + (footerHeight - blockHeight) / 2 + lineHeight / 2;
+        labelLines.forEach((line) => {
+            ctx.fillText(line, x + width / 2, lineY, width - 18);
+            lineY += lineHeight;
+        });
+    }
+
+    ctx.textBaseline = 'alphabetic';
+}
+
+
 async function renderExportCanvas(options = {}) {
     const { includeAlbumTitle = false } = options;
     const visibleFilledItems = getVisibleFilledExportItems();
@@ -1359,19 +1448,29 @@ async function renderExportCanvas(options = {}) {
 
     const cellWidth = 180;
     const imageHeight = 180;
-    const labelHeight = 70;
-    const cellHeight = imageHeight + labelHeight;
+    const exportCardMetaHeight = includeAlbumTitle ? 88 : 0;
+    const exportCardFooterHeight = includeAlbumTitle ? 40 : 0;
+    const categoryLabelHeight = 70;
+    const cellHeight = includeAlbumTitle
+        ? imageHeight + exportCardMetaHeight + exportCardFooterHeight
+        : imageHeight + categoryLabelHeight;
     const gap = 12;
     const columns = Math.min(6, Math.max(1, visibleFilledItems.length));
     const rows = Math.ceil(visibleFilledItems.length / columns);
     const gridWidth = columns * cellWidth + Math.max(0, columns - 1) * gap;
     const gridHeight = rows * cellHeight + Math.max(0, rows - 1) * gap;
     const outerPadding = 15;
-    const footerMarginTop = 28;
-    const footerHeight = 150;
-    const metaCardHeight = includeAlbumTitle ? 250 + gap : 0;
-    const canvasWidth = gridWidth + outerPadding * 2;
-    const canvasHeight = outerPadding * 2 + gridHeight + metaCardHeight + footerMarginTop + footerHeight;
+    const footerMarginTop = 18;
+    const footerTextWidth = 150;
+    const footerGap = 10;
+    const qrSize = 60;
+    const qrBoxSize = qrSize + 10;
+    const footerContentWidth = footerTextWidth + footerGap + qrBoxSize;
+    const contentWidth = Math.max(gridWidth, footerContentWidth);
+    const footerHeight = qrBoxSize;
+    const canvasWidth = contentWidth + outerPadding * 2;
+    const canvasHeight = outerPadding * 2 + gridHeight + footerMarginTop + footerHeight;
+    const gridOffsetX = outerPadding + (contentWidth - gridWidth) / 2;
 
     const canvas = document.createElement('canvas');
     const scale = 3;
@@ -1409,115 +1508,68 @@ async function renderExportCanvas(options = {}) {
     preparedItems.forEach((item, idx) => {
         const col = idx % columns;
         const row = Math.floor(idx / columns);
-        const x = outerPadding + col * (cellWidth + gap);
+        const x = gridOffsetX + col * (cellWidth + gap);
         const y = outerPadding + row * (cellHeight + gap);
 
-        ctx.fillStyle = '#ffffff';
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 3;
-        ctx.fillRect(x, y, cellWidth, cellHeight);
-        ctx.strokeRect(x + 1.5, y + 1.5, cellWidth - 3, cellHeight - 3);
-        ctx.drawImage(item.img, x, y, cellWidth, imageHeight);
+        if (includeAlbumTitle) {
+            drawExportSearchCard(ctx, item, x, y, cellWidth, imageHeight, exportCardMetaHeight, exportCardFooterHeight);
+        } else {
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 3;
+            ctx.fillRect(x, y, cellWidth, cellHeight);
+            ctx.strokeRect(x + 1.5, y + 1.5, cellWidth - 3, cellHeight - 3);
+            ctx.drawImage(item.img, x, y, cellWidth, imageHeight);
 
-        ctx.beginPath();
-        ctx.moveTo(x, y + imageHeight);
-        ctx.lineTo(x + cellWidth, y + imageHeight);
-        ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x, y + imageHeight);
+            ctx.lineTo(x + cellWidth, y + imageHeight);
+            ctx.stroke();
 
-        ctx.fillStyle = '#000000';
-        ctx.font = '700 11px Arial, sans-serif';
-        ctx.textAlign = 'center';
-        const labelLines = wrapCanvasText(ctx, item.label, cellWidth - 16, 3);
-        const lineHeight = 13;
-        const totalLabelHeight = labelLines.length * lineHeight;
-        let textY = y + imageHeight + 10 + (labelHeight - 20 - totalLabelHeight) / 2 + lineHeight - 2;
-        labelLines.forEach((line) => {
-            ctx.fillText(line, x + cellWidth / 2, textY, cellWidth - 16);
-            textY += lineHeight;
-        });
+            ctx.fillStyle = '#000000';
+            ctx.textAlign = 'center';
+            ctx.font = '700 11px Arial, sans-serif';
+            const labelLines = wrapCanvasText(ctx, item.label, cellWidth - 16, 3);
+            const lineHeight = 13;
+            const labelBlockHeight = labelLines.length * lineHeight;
+            let textY = y + imageHeight + Math.max(18, (categoryLabelHeight - labelBlockHeight) / 2 + lineHeight - 2);
+            labelLines.forEach((line) => {
+                ctx.fillText(line, x + cellWidth / 2, textY, cellWidth - 16);
+                textY += lineHeight;
+            });
+        }
     });
 
-    let cursorY = outerPadding + gridHeight;
-    const firstItemWithTitle = visibleFilledItems.find((item) => item?.meta?.title) || null;
-    const firstMeta = firstItemWithTitle?.meta || null;
-
-    if (includeAlbumTitle && firstMeta?.title) {
-        cursorY += gap;
-        const cardX = outerPadding;
-        const cardY = cursorY;
-        const cardWidth = gridWidth;
-        const coverWidth = 180;
-
-        ctx.fillStyle = '#ffffff';
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 3;
-        ctx.fillRect(cardX, cardY, cardWidth, 250);
-        ctx.strokeRect(cardX + 1.5, cardY + 1.5, cardWidth - 3, 247);
-        ctx.beginPath();
-        ctx.moveTo(cardX + coverWidth, cardY);
-        ctx.lineTo(cardX + coverWidth, cardY + 250);
-        ctx.stroke();
-
-        const safeMetaCover = await resolveSafeExportImageSrc(
-            firstItemWithTitle?.image || '',
-            firstMeta.title,
-            firstMeta.artistName || firstMeta.artist || ''
-        );
-        try {
-            const metaCover = await loadImageForCanvas(safeMetaCover);
-            ctx.drawImage(metaCover, cardX, cardY, coverWidth, 250);
-        } catch {}
-
-        ctx.fillStyle = '#1677e8';
-        ctx.textAlign = 'left';
-        ctx.font = '700 32px Arial, sans-serif';
-        const metaLines = wrapCanvasText(ctx, firstMeta.title, Math.max(80, cardWidth - coverWidth - 44), 5);
-        let metaY = cardY + 58;
-        metaLines.forEach((line) => {
-            ctx.fillText(line, cardX + coverWidth + 22, metaY, cardWidth - coverWidth - 44);
-            metaY += 36;
-        });
-        cursorY += 250;
-    }
-
-    cursorY += footerMarginTop;
-
-    const [logoImg, qrImg] = await Promise.all([
-        loadImageForCanvas('logo.png').catch(() => null),
-        loadImageForCanvas('qr-vibechart.png').catch(() => null)
-    ]);
-
-    const footerY = cursorY;
-    const qrSize = 124;
-    const qrBoxSize = qrSize + 16;
-    const qrBoxX = outerPadding + gridWidth - qrBoxSize;
-
-    ctx.fillStyle = '#ffffff';
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 3;
-    ctx.fillRect(qrBoxX, footerY, qrBoxSize, qrBoxSize);
-    ctx.strokeRect(qrBoxX + 1.5, footerY + 1.5, qrBoxSize - 3, qrBoxSize - 3);
-    if (qrImg) {
-        ctx.drawImage(qrImg, qrBoxX + 8, footerY + 8, qrSize, qrSize);
-    }
-
-    let brandX = outerPadding + 8;
-    if (logoImg) {
-        const logoWidth = 210;
-        const ratio = logoImg.naturalHeight ? logoImg.naturalWidth / logoImg.naturalHeight : 1;
-        const logoHeight = Math.round(logoWidth / ratio);
-        ctx.drawImage(logoImg, brandX, footerY + 8, logoWidth, logoHeight);
-        brandX += logoWidth + 16;
-    }
+    const qrImg = await loadImageForCanvas('qr-vibechart.png').catch(() => null);
+    const footerY = outerPadding + gridHeight + footerMarginTop;
+    const footerX = outerPadding + (contentWidth - footerContentWidth) / 2;
 
     ctx.fillStyle = '#000000';
     ctx.textAlign = 'left';
-    ctx.font = '700 28px Arial, sans-serif';
-    ctx.fillText(ui[currentLang].exportPromoText, brandX, footerY + 42);
-    ctx.font = '700 18px Arial, sans-serif';
-    ctx.globalAlpha = 0.7;
-    ctx.fillText(ui[currentLang].exportPromoUrl, brandX, footerY + 72);
-    ctx.globalAlpha = 1;
+    ctx.textBaseline = 'top';
+    ctx.font = '400 14px Arial, sans-serif';
+    const promoLines = wrapCanvasText(ctx, ui[currentLang].exportPromoText.toLowerCase(), footerTextWidth, 2);
+    const promoLineHeight = 16;
+    let promoY = footerY + 12;
+    promoLines.forEach((line) => {
+        ctx.fillText(line, footerX, promoY, footerTextWidth);
+        promoY += promoLineHeight;
+    });
+
+    ctx.fillStyle = '#666666';
+    ctx.font = '400 10px Arial, sans-serif';
+    ctx.fillText(ui[currentLang].exportPromoUrl, footerX, promoY + 4, footerTextWidth);
+
+    const qrBoxX = footerX + footerTextWidth + footerGap;
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 2;
+    ctx.fillRect(qrBoxX, footerY, qrBoxSize, qrBoxSize);
+    ctx.strokeRect(qrBoxX + 1, footerY + 1, qrBoxSize - 2, qrBoxSize - 2);
+    if (qrImg) {
+        ctx.drawImage(qrImg, qrBoxX + 5, footerY + 5, qrSize, qrSize);
+    }
+    ctx.textBaseline = 'alphabetic';
 
     return canvas;
 }
