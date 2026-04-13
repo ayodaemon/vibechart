@@ -199,10 +199,19 @@ function init() {
     render();
     handleScroll();
 
+    let lastViewportWidth = window.innerWidth;
+    let resizeFrame = null;
     window.addEventListener('resize', () => {
-        updateUI();
-        render();
+        const widthChanged = Math.abs(window.innerWidth - lastViewportWidth) > 2;
         handleScroll();
+        if (!widthChanged) return;
+        lastViewportWidth = window.innerWidth;
+        if (resizeFrame) cancelAnimationFrame(resizeFrame);
+        resizeFrame = requestAnimationFrame(() => {
+            updateUI();
+            render();
+            handleScroll();
+        });
     });
     window.addEventListener('scroll', handleScroll, { passive: true });
     window.addEventListener('click', (event) => {
@@ -617,33 +626,25 @@ function getDeezerArtwork(item) {
 }
 
 function getArtistNameFromItem(item) {
-    let name = item?.artist?.name
+    return item?.artist?.name
         || item?.contributors?.find((person) => person?.name)?.name
         || item?.album?.artist?.name
         || item?.album?.contributors?.find((person) => person?.name)?.name
         || item?.album?.creator?.name
-        || item?.creator?.name;
-    
-    if (!name && typeof item?.artist === 'string') name = item.artist;
-    
-    return name || '';
+        || item?.creator?.name
+        || '';
 }
 
 function getArtistIdFromItem(item) {
     return item?.artist?.id || item?.contributors?.[0]?.id || item?.album?.artist?.id || null;
 }
 
-function normalizeDeezerAlbum(item, fallbackArtist = null) {
-    let artistName = getArtistNameFromItem(item);
-    if (!artistName && fallbackArtist && fallbackArtist.name) {
-        artistName = fallbackArtist.name;
-    }
-
+function normalizeDeezerAlbum(item) {
     return {
         id: `deezer-album-${item.id}`,
         source: 'deezer',
-        artistId: getArtistIdFromItem(item) || fallbackArtist?.id || null,
-        artistName: artistName,
+        artistId: getArtistIdFromItem(item),
+        artistName: getArtistNameFromItem(item),
         title: item.title || ui[currentLang].unknownTitle,
         artworkUrl: getDeezerArtwork(item),
         releaseDate: item.release_date || '',
@@ -669,6 +670,15 @@ function normalizeDeezerTrack(item) {
     };
 }
 
+function fillMissingArtistName(item, fallbackArtistName = '') {
+    if (!item) return item;
+    if (item.artistName) return item;
+    return {
+        ...item,
+        artistName: fallbackArtistName || ''
+    };
+}
+
 function dedupeCollections(items) {
     const unique = new Map();
 
@@ -680,8 +690,16 @@ function dedupeCollections(items) {
         }
 
         const existing = unique.get(item.id);
-        const scoreExisting = Number(Boolean(existing.artworkUrl)) + releasePriority(existing.releaseType) + (existing.rank || 0);
-        const scoreNext = Number(Boolean(item.artworkUrl)) + releasePriority(item.releaseType) + (item.rank || 0);
+        const scoreExisting = Number(Boolean(existing.artworkUrl))
+            + Number(Boolean(existing.artistName))
+            + Number(Boolean(existing.title))
+            + releasePriority(existing.releaseType)
+            + (existing.rank || 0);
+        const scoreNext = Number(Boolean(item.artworkUrl))
+            + Number(Boolean(item.artistName))
+            + Number(Boolean(item.title))
+            + releasePriority(item.releaseType)
+            + (item.rank || 0);
 
         if (scoreNext > scoreExisting) {
             unique.set(item.id, item);
@@ -853,8 +871,10 @@ async function resolveArtistMode(query, signal) {
 async function loadArtistReleases(artist, signal) {
     const response = await fetchDeezer(`/artist/${artist.id}/albums?limit=${ARTIST_ALBUM_LIMIT}&index=0`, signal);
     const data = Array.isArray(response?.data) ? response.data : [];
-    
-    return data.map(item => normalizeDeezerAlbum(item, artist)).filter((item) => item.artworkUrl);
+    return data
+        .map(normalizeDeezerAlbum)
+        .map((item) => fillMissingArtistName(item, artist?.name))
+        .filter((item) => item.artworkUrl);
 }
 
 async function loadSearchCollections(query, signal) {
@@ -864,7 +884,7 @@ async function loadSearchCollections(query, signal) {
         fetchDeezer(`/search/track?q=${encodedQuery}&limit=${RESULTS_LIMIT}&order=RATING_DESC`, signal)
     ]);
 
-    const albums = Array.isArray(albumsResponse?.data) ? albumsResponse.data.map(item => normalizeDeezerAlbum(item)) : [];
+    const albums = Array.isArray(albumsResponse?.data) ? albumsResponse.data.map(normalizeDeezerAlbum) : [];
     const tracks = Array.isArray(tracksResponse?.data) ? tracksResponse.data.map(normalizeDeezerTrack) : [];
 
     return [...albums, ...tracks].filter((item) => item.artworkUrl);
@@ -1264,7 +1284,39 @@ function wrapCanvasText(ctx, text, maxWidth, maxLines = 3) {
     const value = String(text || '').trim();
     if (!value) return [];
 
-    const words = value.split(/\s+/);
+    const fitWithEllipsis = (input) => {
+        let trimmed = String(input || '').trim();
+        if (!trimmed) return '';
+        while (trimmed.length > 1 && ctx.measureText(`${trimmed}…`).width > maxWidth) {
+            trimmed = trimmed.slice(0, -1).trim();
+        }
+        return trimmed ? `${trimmed}…` : '…';
+    };
+
+    const splitLongWord = (word) => {
+        if (ctx.measureText(word).width <= maxWidth) return [word];
+        const parts = [];
+        let rest = word;
+        while (rest) {
+            let part = '';
+            for (const char of rest) {
+                const candidate = part + char;
+                if (ctx.measureText(candidate).width <= maxWidth) {
+                    part = candidate;
+                } else {
+                    break;
+                }
+            }
+            if (!part) {
+                part = rest[0];
+            }
+            parts.push(part);
+            rest = rest.slice(part.length);
+        }
+        return parts;
+    };
+
+    const words = value.split(/\s+/).flatMap(splitLongWord);
     const lines = [];
     let current = '';
 
@@ -1295,11 +1347,7 @@ function wrapCanvasText(ctx, text, maxWidth, maxLines = 3) {
     if (words.length && lines.length === maxLines) {
         const consumed = lines.join(' ').split(/\s+/).filter(Boolean).length;
         if (consumed < words.length) {
-            let lastLine = lines[maxLines - 1];
-            while (lastLine.length > 1 && ctx.measureText(`${lastLine}…`).width > maxWidth) {
-                lastLine = lastLine.slice(0, -1).trim();
-            }
-            lines[maxLines - 1] = `${lastLine}…`;
+            lines[maxLines - 1] = fitWithEllipsis(lines[maxLines - 1]);
         }
     }
 
@@ -1335,10 +1383,8 @@ function drawExportSearchCard(ctx, item, x, y, width, imageHeight, metaHeight, f
     const metaY = y + imageHeight;
     const footerY = metaY + metaHeight;
     const paddingX = 10;
-    const paddingTop = 10;
     const textMaxWidth = width - paddingX * 2;
     const title = String(item?.meta?.title || '').trim();
-    const artist = String(item?.meta?.artistName || item?.meta?.artist || '').trim();
     const badgeText = getExportReleaseBadgeText(item?.meta || {});
     const yearText = getExportReleaseYear(item?.meta || {});
     const cardLabel = String(item?.label || '').trim();
@@ -1372,40 +1418,33 @@ function drawExportSearchCard(ctx, item, x, y, width, imageHeight, metaHeight, f
     ctx.stroke();
     ctx.restore();
 
-    let cursorY = metaY + paddingTop;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
 
-    if (title) {
-        ctx.fillStyle = '#1677e8';
-        ctx.font = `700 13px ${fontStack}`;
-        const titleLines = wrapCanvasText(ctx, title, textMaxWidth, 2);
-        const titleLineHeight = 16;
-        titleLines.forEach((line) => {
-            ctx.fillText(line, x + paddingX, cursorY, textMaxWidth);
-            cursorY += titleLineHeight;
-        });
-        cursorY += 2;
-    }
-
-    if (artist) {
-        ctx.fillStyle = '#111111';
-        ctx.font = `600 12px ${fontStack}`;
-        const artistLines = wrapCanvasText(ctx, artist, textMaxWidth, 1);
-        const artistLineHeight = 14;
-        artistLines.forEach((line) => {
-            ctx.fillText(line, x + paddingX, cursorY, textMaxWidth);
-            cursorY += artistLineHeight;
-        });
-        cursorY += 6;
-    }
+    ctx.fillStyle = '#1677e8';
+    ctx.font = `700 13px ${fontStack}`;
+    const titleLines = title ? wrapCanvasText(ctx, title, textMaxWidth, 2) : [];
+    const titleLineHeight = 16;
+    const titleBlockHeight = titleLines.length * titleLineHeight;
 
     const chipHeight = 20;
     const chipRadius = 999;
-    const chipY = metaY + metaHeight - chipHeight - 10;
-    let chipX = x + paddingX;
-
     const chipTexts = [badgeText, yearText].filter(Boolean);
+    const contentGap = titleLines.length > 0 && chipTexts.length > 0 ? 10 : 0;
+    const contentHeight = titleBlockHeight + contentGap + (chipTexts.length > 0 ? chipHeight : 0);
+    let cursorY = metaY + Math.max(10, Math.round((metaHeight - contentHeight) / 2));
+
+    titleLines.forEach((line) => {
+        ctx.fillText(line, x + paddingX, cursorY, textMaxWidth);
+        cursorY += titleLineHeight;
+    });
+
+    if (chipTexts.length > 0) {
+        cursorY += contentGap;
+    }
+
+    const chipY = cursorY;
+    let chipX = x + paddingX;
     chipTexts.forEach((text) => {
         ctx.font = `700 11px ${fontStack}`;
         const chipWidth = Math.ceil(ctx.measureText(text).width) + 16;
@@ -1475,7 +1514,7 @@ async function renderExportCanvas(options = {}) {
     const gridOffsetX = outerPadding + (contentWidth - gridWidth) / 2;
 
     const canvas = document.createElement('canvas');
-    const scale = 3;
+    const scale = 2.5;
     canvas.width = canvasWidth * scale;
     canvas.height = canvasHeight * scale;
     canvas.style.width = `${canvasWidth}px`;
@@ -1581,14 +1620,28 @@ async function saveChart(options = {}) {
 
     try {
         const canvas = await renderExportCanvas(options);
-        const blob = await new Promise((resolve, reject) => {
-            canvas.toBlob((result) => {
-                if (result) resolve(result);
-                else reject(new Error('PNG export failed'));
-            }, 'image/png');
-        });
+        const exportFormats = [
+            { mimeType: 'image/jpeg', extension: 'jpg', quality: 0.9 },
+            { mimeType: 'image/png', extension: 'png' }
+        ];
+
+        let blob = null;
+        let fileExtension = 'png';
+        for (const format of exportFormats) {
+            const candidate = await new Promise((resolve) => {
+                canvas.toBlob((result) => resolve(result || null), format.mimeType, format.quality);
+            });
+            if (candidate && candidate.size > 0) {
+                blob = candidate;
+                fileExtension = format.extension;
+                break;
+            }
+        }
+
+        if (!blob) throw new Error('Image export failed');
+
         const link = document.createElement('a');
-        link.download = 'vibechart.png';
+        link.download = `vibechart.${fileExtension}`;
         link.href = URL.createObjectURL(blob);
         link.click();
         setTimeout(() => URL.revokeObjectURL(link.href), 2000);
